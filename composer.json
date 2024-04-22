@@ -1,0 +1,26 @@
+{
+    "name": "weakbit/lucene-cache",
+    "description": "Provides a cache backend for TYPO3 that stores all cache information in Lucene",
+    "type": "typo3-cms-extension",
+    "license": [
+        "GPL-2.0-or-later"
+    ],
+    "require": {
+        "typo3/cms-core": "^11.5",
+        "zf1s/zend-search-lucene": "^1.15.5",
+        "php": "^8.1"
+    },
+    "autoload": {
+        "psr-4": {
+            "Weakbit\\LuceneCache\\": "Classes/"
+        }
+    },
+    "extra": {
+        "typo3/cms": {
+            "extension-key": "lucene_cache"
+        }
+    },
+    "suggest" : {
+        "rybakit/msgpack": "To get a smaller and faster serialization of data"
+    }
+}

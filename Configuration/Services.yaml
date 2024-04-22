@@ -1,0 +1,9 @@
+services:
+  _defaults:
+    autowire: true
+    autoconfigure: true
+    public: false
+  Weakbit\LuceneCache\Cache\Backend\LuceneCacheBackend:
+    tags:
+      - name: 'cache.backend'
+        identifier: 'lucene_cache_backend'
