@@ -4,7 +4,7 @@ This extension adds a new Cache Backend for the TYPO3 Caching framework, using a
 
 
 ### Example Configuration for the Cache
-```
+```php
 $GLOBALS['TYPO3_CONF_VARS']['SYS']['caching']['cacheConfigurations']['pages'] = [
     'frontend' => \TYPO3\CMS\Core\Cache\Frontend\VariableFrontend::class,
     'backend' => \Weakbit\LuceneCache\Cache\Backend\LuceneCacheBackend::class,
