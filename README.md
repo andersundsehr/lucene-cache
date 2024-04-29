@@ -5,7 +5,7 @@ This extension adds a new Cache Backend for the TYPO3 Caching framework, using a
 You have to decide if it makes sense to use this Backend, in general, the bigger the Cache gets the more sense lays in using lucene.
 
 ### Example Configuration for the Cache
-```
+```php
 $GLOBALS['TYPO3_CONF_VARS']['SYS']['caching']['cacheConfigurations']['pages'] = [
     'frontend' => \TYPO3\CMS\Core\Cache\Frontend\VariableFrontend::class,
     'backend' => \Weakbit\LuceneCache\Cache\Backend\LuceneCacheBackend::class,
