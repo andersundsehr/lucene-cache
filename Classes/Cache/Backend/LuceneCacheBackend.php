@@ -11,12 +11,16 @@ use TYPO3\CMS\Core\Cache\Backend\TaggableBackendInterface;
 use TYPO3\CMS\Core\Cache\Backend\AbstractBackend;
 use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
+use Weakbit\LuceneCache\Tokenizer\SingleSpaceTokenzier;
 use Zend_Search_Lucene;
+use Zend_Search_Lucene_Analysis_Analyzer;
 use Zend_Search_Lucene_Document as Document;
 use Zend_Search_Lucene_Field as Field;
 use Zend_Search_Lucene_Index_Term;
 use Zend_Search_Lucene_Proxy;
+use Zend_Search_Lucene_Search_Query_MultiTerm;
 use Zend_Search_Lucene_Search_Query_Range;
+use Zend_Search_Lucene_Search_QueryParser;
 
 class LuceneCacheBackend extends AbstractBackend implements TaggableBackendInterface
 {
@@ -25,6 +29,9 @@ class LuceneCacheBackend extends AbstractBackend implements TaggableBackendInter
     protected bool $compression = false;
     protected int $compressionLevel = -1;
     protected string $indexName;
+    protected int $maxBufferedDocs = 1000;
+    /** @var array<mixed> */
+    protected array $buffer = [];
 
     /**
      * @param string $context
@@ -43,6 +50,19 @@ class LuceneCacheBackend extends AbstractBackend implements TaggableBackendInter
             }
             $this->index = Zend_Search_Lucene::create($this->directory);
         }
+        Zend_Search_Lucene_Analysis_Analyzer::setDefault(new SingleSpaceTokenzier());
+    }
+
+    public function __destruct()
+    {
+        if (!$this->buffer) {
+            return;
+        }
+
+        // the index might be destructed already, we reconstruct it therefore
+        $this->index = Zend_Search_Lucene::open($this->directory);
+        $this->commit();
+        unset($this->index);
     }
 
     /**
@@ -56,22 +76,23 @@ class LuceneCacheBackend extends AbstractBackend implements TaggableBackendInter
         if (false === is_string($data)) {
             throw new Exception('lucene-cache only accepts string');
         }
+
         if ($lifetime === null) {
             $lifetime = $this->defaultLifetime;
         }
-        $expires = $GLOBALS['EXEC_TIME'] + $lifetime;
-        $this->remove($entryIdentifier);
-        if ($this->compression) {
-            $data = gzcompress($data, $this->compressionLevel);
-        }
-        $doc = new Document();
-        $doc->addField(Field::keyword('identifier', $entryIdentifier));
-        $doc->addField(Field::binary('content', $data));
-        $doc->addField(Field::text('tags', implode(',', $tags)));
-        $doc->addField(Field::unIndexed('lifetime', $expires));
 
-        $this->index->addDocument($doc);
-        $this->index->commit();
+        $expires = $GLOBALS['EXEC_TIME'] + $lifetime;
+
+        $doc = [
+            'lifetime' => $expires,
+            'content' => $data,
+            'tags' => $tags,
+        ];
+
+        $this->buffer[$entryIdentifier] = $doc;
+        if (count($this->buffer) > $this->maxBufferedDocs) {
+            $this->commit();
+        }
     }
 
     /**
@@ -79,7 +100,12 @@ class LuceneCacheBackend extends AbstractBackend implements TaggableBackendInter
      */
     public function get($entryIdentifier): mixed
     {
-        $hits = $this->index->find('identifier:' . $entryIdentifier);
+        if (isset($this->buffer[$entryIdentifier])) {
+            return $this->buffer[$entryIdentifier]['content'];
+        }
+
+        // before we search something, the index will commit internally
+        $hits = $this->index->find('identifier:"' . $entryIdentifier . '"');
 
         $data = empty($hits) ? false : $hits[0]->content;
         if (!$data) {
@@ -98,7 +124,11 @@ class LuceneCacheBackend extends AbstractBackend implements TaggableBackendInter
      */
     public function has($entryIdentifier): bool
     {
-        $hits = $this->index->find('identifier:' . $entryIdentifier);
+        if (isset($this->buffer[$entryIdentifier])) {
+            return true;
+        }
+        // before we search something, the index will commit internally
+        $hits = $this->index->find('identifier:"' . $entryIdentifier . '"');
         return !empty($hits);
     }
 
@@ -107,16 +137,20 @@ class LuceneCacheBackend extends AbstractBackend implements TaggableBackendInter
      */
     public function remove($entryIdentifier): bool
     {
-        $hits = $this->index->find('identifier:' . $entryIdentifier);
+        if (isset($this->buffer[$entryIdentifier])) {
+            unset($this->buffer[$entryIdentifier]);
+        }
+        // before we search something, the index will commit internally
+        $hits = $this->index->find('identifier:"' . $entryIdentifier . '"');
         foreach ($hits as $hit) {
             $this->index->delete($hit->id);
         }
-        $this->index->commit();
         return true;
     }
 
     public function flush(): void
     {
+        $this->buffer = [];
         unset($this->index);
         Zend_Search_Lucene::create($this->directory);
         $this->index = Zend_Search_Lucene::open($this->directory);
@@ -127,11 +161,33 @@ class LuceneCacheBackend extends AbstractBackend implements TaggableBackendInter
      */
     public function flushByTag($tag): void
     {
-        $hits = $this->index->find('tags:' . $tag);
+        $this->commit();
+
+        $query = Zend_Search_Lucene_Search_QueryParser::parse('tags:"' . addslashes($tag) . '"');
+        $start = microtime(true);
+        $hits = $this->index->find($query);
+        $commit = false;
         foreach ($hits as $hit) {
-            $this->index->delete($hit->id);
+            $this->index->delete($hit);
+            $commit = true;
         }
-        $this->index->commit();
+        file_put_contents('timings', microtime(true) - $start.PHP_EOL, FILE_APPEND);
+        // TODO does it receive deleted documents? because if not we could think to mark it dirty here and commit before the next search ( i think it does this anyway ) so mass clearings would perform much better
+        // TODO merge factor ggfs vor "unsrem" commit falls er groß ist hochsetzen und danach stark reduzieren? laut docs müsste das dann schneller indexen.
+        // TODO tests wie im core!
+// TODO$ # also nun noch den feeder checken wie man den schneller bekommt mit kleinen mengen die sizes erhöhen/verringern optimizes zwischendrin oder queue vergrößeren was auch immer, gab es ein optimize  ^C
+// 28.4. mit 50k entries (ohne tests zuletzt kamen bei eigenen prüfungen keine probleme mehr)
+// wkbdef Feeding 50000 took 155.46377301216 seconds
+// wkbdef 1000 Identifiers lookup took 0.26504993438721 seconds
+// wkbdef 100 Tag flushes took 164.84662604332 seconds
+        // -------------
+// wkbmsgpack Feeding 50000 took 446.53987812996 seconds <- doof
+// wkbmsgpack 1000 Identifiers lookup took 0.37302899360657 seconds <- ok
+// wkbmsgpack 100 Tag flushes took 0.35814690589905 seconds <- das wäre perfekt
+
+        if ($commit) {
+            //$this->index->commit();
+        }
     }
 
     /**
@@ -139,7 +195,9 @@ class LuceneCacheBackend extends AbstractBackend implements TaggableBackendInter
      */
     public function findIdentifiersByTag($tag): array
     {
-        $hits = $this->index->find('tags:' . $tag);
+        $this->commit();
+        $query = Zend_Search_Lucene_Search_QueryParser::parse('tags:"' . addslashes($tag) . '"');
+        $hits = $this->index->find($query);
         $identifiers = [];
         foreach ($hits as $hit) {
             $identifiers[] = $hit->identifier;
@@ -184,11 +242,57 @@ class LuceneCacheBackend extends AbstractBackend implements TaggableBackendInter
         }
     }
 
+    public function setMaxBufferedDocs(int $maxBufferedDocs): void
+    {
+        $this->maxBufferedDocs = abs($maxBufferedDocs);
+    }
+
     public function setIndexName(string $indexName): void
     {
         $this->indexName = filter_var($indexName, FILTER_CALLBACK, ['options' => function($value) {
             $value = (string)$value;
             return preg_replace('/[^a-zA-Z0-9\-_]/', '', $value);
         }]);
+    }
+
+    protected function commit(): void
+    {
+        if (!$this->buffer) {
+            return;
+        }
+        $identifiers = array_keys($this->buffer);
+
+        $query = new Zend_Search_Lucene_Search_Query_MultiTerm();
+
+        foreach ($identifiers as $identifier) {
+            $term = new Zend_Search_Lucene_Index_Term($identifier, 'identifier');
+            $query->addTerm($term, false);
+        }
+
+        $hits = $this->index->find($query);
+        foreach ($hits as $hit) {
+            $this->index->delete($hit);
+        }
+
+        foreach ($this->buffer as $entryIdentifier => $item) {
+            $data = $item['content'];
+            $expires = $item['lifetime'];
+            $tags = implode(' ', $item['tags']);
+
+            if ($this->compression) {
+                $data = gzcompress($data, $this->compressionLevel);
+            }
+
+            $doc = new Document();
+            $doc->addField(Field::keyword('identifier', $entryIdentifier));
+            $doc->addField(Field::binary('content', $data));
+            $doc->addField(Field::unStored('tags', $tags));
+            $doc->addField(Field::unIndexed('lifetime', $expires));
+
+            $this->index->addDocument($doc);
+        }
+        $this->index->commit();
+
+        $this->buffer = [];
     }
 }
