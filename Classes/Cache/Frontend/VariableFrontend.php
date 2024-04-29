@@ -2,9 +2,10 @@
 
 declare(strict_types=1);
 
-
 namespace Weakbit\LuceneCache\Cache\Frontend;
 
+use TYPO3\CMS\Core\Cache\Exception;
+use TYPO3\CMS\Core\Cache\Exception\InvalidDataException;
 use MessagePack\BufferUnpacker;
 use MessagePack\Packer;
 use TYPO3\CMS\Core\Cache\Backend\TransientBackendInterface;
@@ -14,6 +15,7 @@ use TYPO3\CMS\Core\Cache\Backend\BackendInterface;
 class VariableFrontend extends \TYPO3\CMS\Core\Cache\Frontend\VariableFrontend
 {
     protected bool $messagePack = false;
+
     protected bool $igBinary = false;
 
     public function __construct($identifier, BackendInterface $backend)
@@ -23,7 +25,12 @@ class VariableFrontend extends \TYPO3\CMS\Core\Cache\Frontend\VariableFrontend
         $this->igBinary = class_exists('igbinary_serialize');
     }
 
-    public function set($entryIdentifier, $variable, array $tags = [], $lifetime = null)
+    /**
+     * @param array<string> $tags
+     * @throws Exception
+     * @throws InvalidDataException
+     */
+    public function set($entryIdentifier, $variable, array $tags = [], $lifetime = null): void
     {
         if (!$this->isValidEntryIdentifier($entryIdentifier)) {
             throw new \InvalidArgumentException(
@@ -31,6 +38,7 @@ class VariableFrontend extends \TYPO3\CMS\Core\Cache\Frontend\VariableFrontend
                 1233058264
             );
         }
+
         foreach ($tags as $tag) {
             if (!$this->isValidTag($tag)) {
                 throw new \InvalidArgumentException('"' . $tag . '" is not a valid tag for a cache entry.', 1233058269);
@@ -46,9 +54,14 @@ class VariableFrontend extends \TYPO3\CMS\Core\Cache\Frontend\VariableFrontend
             ];
             GeneralUtility::callUserFunction($_funcRef, $params, $this);
         }
+
         if (!$this->backend instanceof TransientBackendInterface) {
             $variable = $this->serialize($variable);
+            if (null === $variable) {
+                throw new \RuntimeException('Could not serialize variable for cache');
+            }
         }
+
         $this->backend->set($entryIdentifier, $variable, $tags, $lifetime);
     }
 
@@ -68,34 +81,40 @@ class VariableFrontend extends \TYPO3\CMS\Core\Cache\Frontend\VariableFrontend
                 1233058294
             );
         }
+
         $rawResult = $this->backend->get($entryIdentifier);
         if ($rawResult === false) {
             return false;
         }
+
         return $this->backend instanceof TransientBackendInterface ? $rawResult : $this->unserialize($rawResult);
     }
 
-    protected function serialize(mixed $variable)
+    protected function serialize(mixed $variable): ?string
     {
         if ($this->igBinary) {
             return igbinary_serialize($variable);
         }
+
         if ($this->messagePack) {
             $packer = GeneralUtility::makeInstance(Packer::class);
             return $packer->pack($variable);
         }
+
         return serialize($variable);
     }
 
-    protected function unserialize(mixed $rawResult)
+    protected function unserialize(string $rawResult): mixed
     {
         if ($this->igBinary) {
             return igbinary_unserialize($rawResult);
         }
+
         if ($this->messagePack) {
             $unpacker = GeneralUtility::makeInstance(BufferUnpacker::class, $rawResult);
             return $unpacker->unpack();
         }
+
         return unserialize($rawResult);
     }
 }
