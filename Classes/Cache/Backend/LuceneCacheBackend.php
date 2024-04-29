@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Weakbit\LuceneCache\Cache\Backend;
 
+use RuntimeException;
 use TYPO3\CMS\Core\Context\Context;
 use Exception;
 use TYPO3\CMS\Core\Cache\Backend\TaggableBackendInterface;
@@ -180,30 +181,9 @@ class LuceneCacheBackend extends AbstractBackend implements TaggableBackendInter
         $this->commit();
 
         $query = Zend_Search_Lucene_Search_QueryParser::parse('tags:"' . addslashes($tag) . '"');
-        $start = microtime(true);
         $hits = $this->index->find($query);
-        $commit = false;
         foreach ($hits as $hit) {
             $this->index->delete($hit);
-            $commit = true;
-        }
-
-        file_put_contents('timings', microtime(true) - $start . PHP_EOL, FILE_APPEND);
-        // TODO does it receive deleted documents? because if not we could think to mark it dirty here and commit before the next search ( i think it does this anyway ) so mass clearings would perform much better
-        // TODO merge factor ggfs vor "unsrem" commit falls er groß ist hochsetzen und danach stark reduzieren? laut docs müsste das dann schneller indexen.
-        // TODO tests wie im core!
-// TODO$ # also nun noch den feeder checken wie man den schneller bekommt mit kleinen mengen die sizes erhöhen/verringern optimizes zwischendrin oder queue vergrößeren was auch immer, gab es ein optimize  ^C
-// 28.4. mit 50k entries (ohne tests zuletzt kamen bei eigenen prüfungen keine probleme mehr)
-// wkbdef Feeding 50000 took 155.46377301216 seconds
-// wkbdef 1000 Identifiers lookup took 0.26504993438721 seconds
-// wkbdef 100 Tag flushes took 164.84662604332 seconds
-        // -------------
-// wkbmsgpack Feeding 50000 took 446.53987812996 seconds <- doof
-// wkbmsgpack 1000 Identifiers lookup took 0.37302899360657 seconds <- ok
-// wkbmsgpack 100 Tag flushes took 0.35814690589905 seconds <- das wäre perfekt
-
-        if ($commit) {
-            //$this->index->commit();
         }
     }
 
@@ -285,6 +265,9 @@ class LuceneCacheBackend extends AbstractBackend implements TaggableBackendInter
 
         $identifiers = array_keys($this->buffer);
 
+        $maxBufferedDocks = $this->index->getMaxBufferedDocs();
+        $this->index->setMaxBufferedDocs(count($identifiers) + 10);
+
         $query = new Zend_Search_Lucene_Search_Query_MultiTerm();
 
         foreach ($identifiers as $identifier) {
@@ -306,7 +289,7 @@ class LuceneCacheBackend extends AbstractBackend implements TaggableBackendInter
             if ($this->compression) {
                 $data = gzcompress($data, $this->compressionLevel);
                 if (false === $data) {
-                    throw new \RuntimeException('Could not compress data');
+                    throw new RuntimeException('Could not compress data');
                 }
             }
 
@@ -320,6 +303,8 @@ class LuceneCacheBackend extends AbstractBackend implements TaggableBackendInter
         }
 
         $this->index->commit();
+
+        $this->index->setMaxBufferedDocs($maxBufferedDocks);
 
         $this->buffer = [];
     }
