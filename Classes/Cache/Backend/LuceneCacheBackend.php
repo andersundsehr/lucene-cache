@@ -65,18 +65,14 @@ class LuceneCacheBackend extends AbstractBackend implements TaggableBackendInter
 
         Zend_Search_Lucene_Analysis_Analyzer::setDefault(new SingleSpaceTokenzier());
         $this->execTime = GeneralUtility::makeInstance(Context::class)->getPropertyFromAspect('date', 'timestamp');
-    }
 
-    public function __destruct()
-    {
-        if (!$this->buffer) {
-            return;
-        }
+        register_shutdown_function(function() {
+            if (!$this->buffer) {
+                return;
+            }
 
-        // the index might be destructed already, we reconstruct it therefore
-        $this->index = Zend_Search_Lucene::open($this->directory);
-        $this->commit();
-        unset($this->index);
+            $this->commit();
+        });
     }
 
     /**
