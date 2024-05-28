@@ -65,14 +65,7 @@ class LuceneCacheBackend extends AbstractBackend implements TaggableBackendInter
 
         Zend_Search_Lucene_Analysis_Analyzer::setDefault(new SingleSpaceTokenzier());
         $this->execTime = GeneralUtility::makeInstance(Context::class)->getPropertyFromAspect('date', 'timestamp');
-
-        register_shutdown_function(function() {
-            if (!$this->buffer) {
-                return;
-            }
-
-            $this->commit();
-        });
+        register_shutdown_function([$this, 'shutdown']);
     }
 
     /**
@@ -178,6 +171,21 @@ class LuceneCacheBackend extends AbstractBackend implements TaggableBackendInter
 
         $query = Zend_Search_Lucene_Search_QueryParser::parse('tags:"' . addslashes($tag) . '"');
         $hits = $this->index->find($query);
+        foreach ($hits as $hit) {
+            $this->index->delete($hit);
+        }
+    }
+
+    public function flushByTags(array $tags): void
+    {
+        $this->commit();
+
+        $escapedTags = array_map(static fn($tag): string => '"' . addslashes($tag) . '"', $tags);
+        $queryStr = 'tags:(' . implode(' OR ', $escapedTags) . ')';
+
+        $query = Zend_Search_Lucene_Search_QueryParser::parse($queryStr);
+        $hits = $this->index->find($query);
+
         foreach ($hits as $hit) {
             $this->index->delete($hit);
         }
@@ -303,5 +311,10 @@ class LuceneCacheBackend extends AbstractBackend implements TaggableBackendInter
         $this->index->setMaxBufferedDocs($maxBufferedDocks);
 
         $this->buffer = [];
+    }
+
+    public function shutdown(): void
+    {
+        $this->commit();
     }
 }

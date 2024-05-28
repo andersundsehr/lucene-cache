@@ -96,13 +96,25 @@ class LuceneCacheBackendTest extends UnitTestCase
         $this->subject->set($entryIdentifier, $data, $tags, $lifetime);
         $this->assertSame($data, $this->subject->get($entryIdentifier));
 
-        $reflectionMethod = new ReflectionMethod($this->subject, 'flushByTag');
-        $reflectionMethod->setAccessible(true);
-        $reflectionMethod->invoke($this->subject, 'importantTag');
-        $this->assertFalse($this->subject->has('taggedDataIdentifier'), "The data should not be found after removing the tag.");
-        $this->assertTrue($this->subject->has('taggedDataIdentifier2'), "The data should be found after removing the tag.");
+        $this->subject->flushByTag('importantTag');
+
+        $this->assertFalse($this->subject->has('taggedDataIdentifier'), 'The data should not be found after removing the tag.');
+        $this->assertTrue($this->subject->has('taggedDataIdentifier2'), 'The data should be found after removing the tag.');
     }
 
+    public function testTagsRemovalAlsoRemovesAssociatedData(): void
+    {
+        $this->subject = new LuceneCacheBackend('Testing', ['indexName' => 'testing']);
+
+        $this->subject->set('identifier1', 'whatever data', ['tag1', 'tag2'], 3600);
+        $this->subject->set('identifier2', 'whatever data', ['tag2', 'tag3'], 3600);
+        $this->subject->set('identifier3', 'whatever data', ['tag4', 'tag5'], 3600);
+
+        $this->subject->flushByTags(['tag1', 'tag2']);
+        $this->assertFalse($this->subject->has('identifier1'), 'The data should not be found after removing the tag.');
+        $this->assertFalse($this->subject->has('identifier2'), 'The data should not be found after removing the tag.');
+        $this->assertTrue($this->subject->has('identifier3'), 'The data should be found after removing the tag.');
+    }
 
     /**
      * Test that the garbage collection function removes expired entries and keeps valid ones.
@@ -123,8 +135,8 @@ class LuceneCacheBackendTest extends UnitTestCase
 
         $this->subject->collectGarbage();
 
-        $this->assertFalse($this->subject->has($entryIdentifierPast), "Past data should be removed by garbage collection.");
-        $this->assertTrue($this->subject->has($entryIdentifierFuture), "Future data should remain after garbage collection.");
+        $this->assertFalse($this->subject->has($entryIdentifierPast), 'Past data should be removed by garbage collection.');
+        $this->assertTrue($this->subject->has($entryIdentifierFuture), 'Future data should remain after garbage collection.');
     }
 
     protected function removeDirectory(string $dir): bool
