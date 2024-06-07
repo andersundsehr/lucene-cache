@@ -22,7 +22,6 @@ use Zend_Search_Lucene_Document as Document;
 use Zend_Search_Lucene_Field as Field;
 use Zend_Search_Lucene_Index_Term;
 use Zend_Search_Lucene_Interface;
-use Zend_Search_Lucene_Search_Query_MultiTerm;
 use Zend_Search_Lucene_Search_Query_Range;
 use Zend_Search_Lucene_Search_QueryParser;
 
@@ -272,16 +271,12 @@ class LuceneCacheBackend extends AbstractBackend implements TaggableBackendInter
         $maxBufferedDocks = $this->index->getMaxBufferedDocs();
         $this->index->setMaxBufferedDocs(count($identifiers) + 10);
 
-        $query = new Zend_Search_Lucene_Search_Query_MultiTerm();
-
+        // delete the current entry, lucene cant replace
         foreach ($identifiers as $identifier) {
-            $term = new Zend_Search_Lucene_Index_Term($identifier, 'identifier');
-            $query->addTerm($term, false);
-        }
-
-        $hits = $this->index->find($query);
-        foreach ($hits as $hit) {
-            $this->index->delete($hit);
+            $hits = $this->index->find('identifier:"' . $identifier . '"');
+            foreach ($hits as $hit) {
+                $this->index->delete($hit->id);
+            }
         }
 
         foreach ($this->buffer as $entryIdentifier => $item) {

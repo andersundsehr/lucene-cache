@@ -116,6 +116,24 @@ class LuceneCacheBackendTest extends UnitTestCase
         $this->assertTrue($this->subject->has('identifier3'), 'The data should be found after removing the tag.');
     }
 
+    public function testCommitingTwiceFindsOneActualDocument(): void
+    {
+        $this->subject = new LuceneCacheBackend('Testing', ['indexName' => 'testing']);
+        $noData = $this->subject->get('notthere');
+
+        $this->subject->set('twicecheck', 'whatever data');
+        // flush forces a commit from the ram buffer
+        $this->subject->flushByTag('sometagthatdoesnotexist');
+        $this->assertFalse($noData);
+
+        $this->subject->set('twicecheck', 'some other data');
+        $this->subject->flushByTag('sometagthatdoesnotexist');
+
+        $data = $this->subject->get('twicecheck');
+        $this->assertNotFalse($data);
+        $this->assertSame('some other data', $data);
+    }
+
     /**
      * Test that the garbage collection function removes expired entries and keeps valid ones.
      */
