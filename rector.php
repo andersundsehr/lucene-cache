@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Rector\Php71\Rector\FuncCall\RemoveExtraParametersRector;
 use Rector\Privatization\Rector\Property\PrivatizeFinalClassPropertyRector;
 use Rector\Privatization\Rector\ClassMethod\PrivatizeFinalClassMethodRector;
 use Rector\Privatization\Rector\Class_\FinalizeClassesWithoutChildrenRector;
@@ -41,6 +42,7 @@ return static function (RectorConfig $rectorConfig): void {
             PrivatizeFinalClassMethodRector::class,
             FinalizeClassesWithoutChildrenRector::class,
             DateTimeAspectInsteadOfGlobalsExecTimeRector::class,
+            RemoveExtraParametersRector::class,
 
             /**
              * rector should not touch these files

@@ -11,6 +11,8 @@ use MessagePack\Packer;
 use TYPO3\CMS\Core\Cache\Backend\TransientBackendInterface;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Cache\Backend\BackendInterface;
+use Weakbit\LuceneCache\Transformer\PageTransformer;
+use Weakbit\LuceneCache\Transformer\UriTransformer;
 
 class VariableFrontend extends \TYPO3\CMS\Core\Cache\Frontend\VariableFrontend
 {
@@ -97,7 +99,11 @@ class VariableFrontend extends \TYPO3\CMS\Core\Cache\Frontend\VariableFrontend
         }
 
         if ($this->messagePack) {
-            $packer = GeneralUtility::makeInstance(Packer::class);
+            $packer = GeneralUtility::makeInstance(Packer::class, null, [
+                new PageTransformer(10),
+                new UriTransformer(11),
+            ]);
+            assert($packer instanceof Packer);
             return $packer->pack($variable);
         }
 
@@ -111,7 +117,11 @@ class VariableFrontend extends \TYPO3\CMS\Core\Cache\Frontend\VariableFrontend
         }
 
         if ($this->messagePack) {
-            $unpacker = GeneralUtility::makeInstance(BufferUnpacker::class, $rawResult);
+            $unpacker = GeneralUtility::makeInstance(BufferUnpacker::class, $rawResult, null, [
+                new PageTransformer(10),
+                new UriTransformer(11),
+            ]);
+            assert($unpacker instanceof BufferUnpacker);
             return $unpacker->unpack();
         }
 

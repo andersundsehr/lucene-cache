@@ -14,7 +14,9 @@ $GLOBALS['TYPO3_CONF_VARS']['SYS']['caching']['cacheConfigurations']['pages'] = 
         'indexName' => 'pages',
         'maxBufferedDocs' => 1000,
     ],
-    'groups' => ['all']
+    'groups' => [
+      'pages',
+    ]
 ];
 ```
 
