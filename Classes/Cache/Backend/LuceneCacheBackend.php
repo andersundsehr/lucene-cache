@@ -8,12 +8,14 @@ declare(strict_types=1);
 
 namespace Weakbit\LuceneCache\Cache\Backend;
 
+use AUS\AusMetricsExporter\Service\CollectorService;
 use RuntimeException;
 use TYPO3\CMS\Core\Context\Context;
 use Exception;
 use TYPO3\CMS\Core\Cache\Backend\TaggableBackendInterface;
 use TYPO3\CMS\Core\Cache\Backend\AbstractBackend;
 use TYPO3\CMS\Core\Core\Environment;
+use TYPO3\CMS\Core\Utility\ExtensionManagementUtility;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use Weakbit\LuceneCache\Tokenizer\SingleSpaceTokenzier;
 use Zend_Search_Lucene;
@@ -44,6 +46,10 @@ class LuceneCacheBackend extends AbstractBackend implements TaggableBackendInter
 
     protected int $execTime;
 
+    protected bool $collect = false;
+
+    protected CollectorService $collectorService;
+
     /**
      * @param array<mixed> $options
      */
@@ -65,6 +71,11 @@ class LuceneCacheBackend extends AbstractBackend implements TaggableBackendInter
         Zend_Search_Lucene_Analysis_Analyzer::setDefault(new SingleSpaceTokenzier());
         $this->execTime = GeneralUtility::makeInstance(Context::class)->getPropertyFromAspect('date', 'timestamp');
         register_shutdown_function([$this, 'shutdown']);
+
+        if (ExtensionManagementUtility::isLoaded('aus_metrics_exporter')) {
+            $this->collect = true;
+            $this->collectorService = GeneralUtility::makeInstance(CollectorService::class);
+        }
     }
 
     /**
@@ -95,6 +106,8 @@ class LuceneCacheBackend extends AbstractBackend implements TaggableBackendInter
         if (count($this->buffer) > $this->maxBufferedDocs) {
             $this->commit();
         }
+
+        $this->collect('inserts');
     }
 
     /**
@@ -103,6 +116,7 @@ class LuceneCacheBackend extends AbstractBackend implements TaggableBackendInter
     public function get($entryIdentifier): mixed
     {
         if (isset($this->buffer[$entryIdentifier])) {
+            $this->collect('hits');
             return $this->buffer[$entryIdentifier]['content'];
         }
 
@@ -117,7 +131,7 @@ class LuceneCacheBackend extends AbstractBackend implements TaggableBackendInter
         if ($this->compression) {
             return gzuncompress($data);
         }
-
+        $this->collect('hits');
         return $data;
     }
 
@@ -141,12 +155,14 @@ class LuceneCacheBackend extends AbstractBackend implements TaggableBackendInter
     public function remove($entryIdentifier): bool
     {
         if (isset($this->buffer[$entryIdentifier])) {
+            $this->collect('removes');
             unset($this->buffer[$entryIdentifier]);
         }
 
         // before we search something, the index will commit internally
         $hits = $this->index->find('identifier:"' . $entryIdentifier . '"');
         foreach ($hits as $hit) {
+            $this->collect('removes');
             $this->index->delete($hit->id);
         }
 
@@ -155,6 +171,7 @@ class LuceneCacheBackend extends AbstractBackend implements TaggableBackendInter
 
     public function flush(): void
     {
+        $this->collect('flushes');
         $this->buffer = [];
         unset($this->index);
         Zend_Search_Lucene::create($this->directory);
@@ -167,7 +184,7 @@ class LuceneCacheBackend extends AbstractBackend implements TaggableBackendInter
     public function flushByTag($tag): void
     {
         $this->commit();
-
+        $this->collect('flushes-by-tag');
         $query = Zend_Search_Lucene_Search_QueryParser::parse('tags:"' . addslashes($tag) . '"');
         $hits = $this->index->find($query);
         foreach ($hits as $hit) {
@@ -178,7 +195,7 @@ class LuceneCacheBackend extends AbstractBackend implements TaggableBackendInter
     public function flushByTags(array $tags): void
     {
         $this->commit();
-
+        $this->collect('flushes-by-tags');
         $escapedTags = array_map(static fn($tag): string => '"' . addslashes($tag) . '"', $tags);
         $queryStr = 'tags:(' . implode(' OR ', $escapedTags) . ')';
 
@@ -311,5 +328,12 @@ class LuceneCacheBackend extends AbstractBackend implements TaggableBackendInter
     public function shutdown(): void
     {
         $this->commit();
+    }
+
+    protected function collect(string $string): void
+    {
+        if ($this->collect) {
+            $this->collectorService->collect('weakbit_lucene-cache_' . $string, '1');
+        }
     }
 }

@@ -1,8 +1,54 @@
-## Description
+# Use Lucene as Cache Backend for your TYPO3 projects
+Provides a cache backend for TYPO3 that stores all cache information in Lucene.
 
-This extension adds a new Cache Backend for the TYPO3 Caching framework, using a PHP implementation of the lucene index to hold the data. The goal is have a ram-independent cache.
+## Key Features of lucene-cache for TYPO3 
+- Efficient Caching: Uses Lucene's indexing and search capabilities to store and retrieve cached content quickly.
+- Scalability: Can handle large volumes of data and perform well under high load, making it suitable for large TYPO3 installations.
+- Flexibility: Provides flexible configuration options to tailor the caching behavior to specific needs.
+- Integration: Seamlessly integrates with TYPO3's caching framework, allowing for easy setup and use within TYPO3 projects.
 
-You have to decide if it makes sense to use this Backend, in general, the bigger the Cache gets the more sense lays in using lucene.
+## Installation and Configuration
+To use the lucene-cache backend in your TYPO3 project, follow these steps:
+
+### Install the Extension
+   You can install the lucene-cache extension via Composer:
+
+```sh
+composer require andersundsehr/lucene-cache
+```
+
+### Configure the Cache Backend
+
+In your TYPO3 configuration, typically in LocalConfiguration.php or AdditionalConfiguration.php, additional.php, settings.php or even ext_localconf.php you need to configure the cache backend to use Lucene. Here is an example configuration:
+
+```php
+$GLOBALS['TYPO3_CONF_VARS']['SYS']['caching']['cacheConfigurations']['pages'] = [
+    'frontend' => \TYPO3\CMS\Core\Cache\Frontend\VariableFrontend::class,
+    'backend' => \Weakbit\LuceneCache\Cache\Backend\LuceneCacheBackend::class,
+    'options' => [
+        'defaultLifetime' => 604800,
+        'indexName' => 'pages',
+        'maxBufferedDocs' => 1000,
+    ],
+    'groups' => [
+      'pages',
+    ]
+];
+```
+
+
+### Example Usage
+After configuring the lucene-cache backend, TYPO3 will use Lucene for caching pages or other cache configurations you have specified. You can verify the caching behavior by checking the specified index path for Lucene index files and monitoring the performance improvements in your TYPO3 installation.
+
+Additional Resources
+For more detailed information, refer to the following resources:
+
+
+[Lucene-cache GitHub Repository](https://github.com/andersundsehr/lucene-cache)
+[TYPO3 Documentation on Caching Framework](https://docs.typo3.org/m/typo3/reference-coreapi/12.4/en-us/ApiOverview/CachingFramework/Index.html****)
+
+These resources provide comprehensive documentation and examples to help you get started with the lucene-cache backend for TYPO3.
+
 
 ### Example Configuration for the Cache
 ```php
@@ -22,28 +68,32 @@ $GLOBALS['TYPO3_CONF_VARS']['SYS']['caching']['cacheConfigurations']['pages'] = 
 
 The Option "indexName" must not contain other than the following chars: *a-zA-Z0-9\-_*
 
-
 ### Performance
 
-The performance heavily depends on your setup und needs. In my case i checked it with a modern system using SATA SSD.
-
-Also the Setup created quite very many "Cache-Tags".
+The issue to develop that cache was a usage of very many cache Tags.
 
 maxBufferedDocs is set to 1000 here, that means that up to 1000 documents are buffered before the writeout, that is good for large imports if you have some spare ram.
 But keep in mind that a lookup (has,get,remove,flush) will always commit the buffer first to have a full index to search in.
 
-
 ### Keep in mind 
 
-Cache is indented to be nearly valid, but concurrency or programatically issues between the cache layer and your data might lead into inconsistency, that is why you should think about queues and transactions as soon as the cache must be precise.
-
-This extenion relies on using the SingleSpackTokenizer with the lucene package, so if you already use lucene in your project, your tokenizer is overwritten which could lead into problems.
+This extenion relies on using the SingleSpaceTokenizer with the lucene package, so if you already use lucene in your project, your tokenizer is overwritten which could lead into problems.
 *This is a todo we work on*
 
 # Considerdations
 
-You should consider to set a proper serializer to your PHP Installation e.g. msgpack or igbinary
+In the example
+```
+    'frontend' => \TYPO3\CMS\Core\Cache\Frontend\VariableFrontend::class,
+```
+Was set, that is the default frontend. This extension ships with the dropin replacement
+```
+    'frontend' => \Weakbit\LuceneCache\Cache\Frontend\VariableFrontend::class,
+```
 
-To be done:
+Which uses igbinary if installed, or msgpack if installed. These have some improvements in performance, but you may go with the default frontent as well.
+
+## To be done:
 - implement metrics (hits/misses/inserts/deletions)
-- Code quality coverage
+
+This extension is inpired by Benni Mack's [https://github.com/bmack/local-caches](bmack/local-caches)
