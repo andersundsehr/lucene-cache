@@ -1,0 +1,6 @@
+FROM pluswerk/php-dev:nginx-8.3-alpine as base
+
+ADD . /app
+WORKDIR /app
+
+

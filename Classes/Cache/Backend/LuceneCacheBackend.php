@@ -72,7 +72,8 @@ class LuceneCacheBackend extends AbstractBackend implements TaggableBackendInter
         $this->execTime = GeneralUtility::makeInstance(Context::class)->getPropertyFromAspect('date', 'timestamp');
         register_shutdown_function([$this, 'shutdown']);
 
-        if (ExtensionManagementUtility::isLoaded('aus_metrics_exporter')) {
+        $context = \TYPO3\CMS\Core\Core\Environment::getContext();
+        if (!$context->isTesting() && ExtensionManagementUtility::isLoaded('aus_metrics_exporter')) {
             $this->collect = true;
             $this->collectorService = GeneralUtility::makeInstance(CollectorService::class);
         }
@@ -240,7 +241,6 @@ class LuceneCacheBackend extends AbstractBackend implements TaggableBackendInter
         }
 
         $this->index->commit();
-        $this->index->optimize();
     }
 
     public function setCompression(bool $compression): void
@@ -271,10 +271,12 @@ class LuceneCacheBackend extends AbstractBackend implements TaggableBackendInter
 
     public function setIndexName(string $indexName): void
     {
-        $this->indexName = filter_var($indexName, FILTER_CALLBACK, ['options' => static function ($value): ?string {
-            $value = (string)$value;
-            return preg_replace('/[^a-zA-Z0-9\-_]/', '', $value);
-        }]);
+        $this->indexName = filter_var($indexName, FILTER_CALLBACK, [
+            'options' => static function ($value): ?string {
+                $value = (string)$value;
+                return preg_replace('/[^a-zA-Z0-9\-_]/', '', $value);
+            },
+        ]);
     }
 
     protected function commit(): void

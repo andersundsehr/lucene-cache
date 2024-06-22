@@ -28,7 +28,8 @@
   "suggest": {
     "rybakit/msgpack": "To get a smaller and faster serialization of data"
   },
-  "minimum-stability": "stable",
+  "minimum-stability": "dev",
+  "prefer-stable" : true,
   "autoload": {
     "psr-4": {
       "Weakbit\\LuceneCache\\": "Classes/"
@@ -56,5 +57,11 @@
   },
   "scripts": {
     "test": "@php ./vendor/bin/phpunit"
-  }
+  },
+  "repositories": [
+    {
+      "type": "git",
+      "url": "https://github.com/andersundsehr/aus_metrics_exporter.git"
+    }
+  ]
 }
