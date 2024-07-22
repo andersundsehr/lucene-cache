@@ -57,6 +57,7 @@ class LuceneCacheBackend extends AbstractBackend implements TaggableBackendInter
     {
         parent::__construct($context, $options);
 
+        Zend_Search_Lucene::setTermsPerQueryLimit(PHP_INT_MAX);
         $this->directory = $options['directory'] ?? GeneralUtility::getFileAbsFileName(Environment::getVarPath() . '/weakbit/lucene-cache/' . $context . '/' . $this->indexName);
         if (is_dir($this->directory)) {
             $this->index = Zend_Search_Lucene::open($this->directory);
@@ -72,7 +73,7 @@ class LuceneCacheBackend extends AbstractBackend implements TaggableBackendInter
         $this->execTime = GeneralUtility::makeInstance(Context::class)->getPropertyFromAspect('date', 'timestamp');
         register_shutdown_function([$this, 'shutdown']);
 
-        $context = \TYPO3\CMS\Core\Core\Environment::getContext();
+        $context = Environment::getContext();
         if (!$context->isTesting() && ExtensionManagementUtility::isLoaded('aus_metrics_exporter')) {
             $this->collect = true;
             $this->collectorService = GeneralUtility::makeInstance(CollectorService::class);
@@ -132,6 +133,7 @@ class LuceneCacheBackend extends AbstractBackend implements TaggableBackendInter
         if ($this->compression) {
             return gzuncompress($data);
         }
+
         $this->collect('hits');
         return $data;
     }

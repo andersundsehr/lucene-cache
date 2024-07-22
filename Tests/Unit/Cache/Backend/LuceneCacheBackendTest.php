@@ -146,14 +146,17 @@ class LuceneCacheBackendTest extends UnitTestCase
         $dataPast = 'dataWithPastExpiry';
         $dataFuture = 'dataWithFutureExpiry';
         $expiredLifetime = -3600;  // 1 hour ago
-        $futureLifetime = 3600;     // 1 hour from now
+        $futureLifetime = 3600; // 1 hour from now
 
-        $this->subject->set($entryIdentifierPast, $dataPast, [], $expiredLifetime);
+        for ($i = 0; $i < 1030; $i++) {
+            $this->subject->set($entryIdentifierPast . $i, $dataPast, [], $expiredLifetime - $i);
+        }
+
         $this->subject->set($entryIdentifierFuture, $dataFuture, [], $futureLifetime);
 
         $this->subject->collectGarbage();
 
-        $this->assertFalse($this->subject->has($entryIdentifierPast), 'Past data should be removed by garbage collection.');
+        $this->assertFalse($this->subject->has('pastData0'), 'Past data should be removed by garbage collection.');
         $this->assertTrue($this->subject->has($entryIdentifierFuture), 'Future data should remain after garbage collection.');
     }
 
