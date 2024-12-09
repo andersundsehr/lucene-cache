@@ -8,26 +8,26 @@ declare(strict_types=1);
 
 namespace Weakbit\LuceneCache\Cache\Backend;
 
-use AUS\AusMetricsExporter\Service\CollectorService;
-use RuntimeException;
-use TYPO3\CMS\Core\Context\Context;
 use Exception;
+use RuntimeException;
+use TYPO3\CMS\Core\Cache\Backend\SimpleFileBackend;
 use TYPO3\CMS\Core\Cache\Backend\TaggableBackendInterface;
-use TYPO3\CMS\Core\Cache\Backend\AbstractBackend;
-use TYPO3\CMS\Core\Core\Environment;
-use TYPO3\CMS\Core\Utility\ExtensionManagementUtility;
+use TYPO3\CMS\Core\Context\Context;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use Weakbit\LuceneCache\Tokenizer\SingleSpaceTokenzier;
+use Zend_Search_Exception;
 use Zend_Search_Lucene;
 use Zend_Search_Lucene_Analysis_Analyzer;
 use Zend_Search_Lucene_Document as Document;
+use Zend_Search_Lucene_Exception;
 use Zend_Search_Lucene_Field as Field;
 use Zend_Search_Lucene_Index_Term;
 use Zend_Search_Lucene_Interface;
 use Zend_Search_Lucene_Search_Query_Range;
+use Zend_Search_Lucene_Search_Query_Wildcard;
 use Zend_Search_Lucene_Search_QueryParser;
 
-class LuceneCacheBackend extends AbstractBackend implements TaggableBackendInterface
+class LuceneCacheBackend extends SimpleFileBackend implements TaggableBackendInterface
 {
     protected Zend_Search_Lucene_Interface $index;
 
@@ -37,18 +37,12 @@ class LuceneCacheBackend extends AbstractBackend implements TaggableBackendInter
 
     protected int $compressionLevel = -1;
 
-    protected string $indexName;
-
     protected int $maxBufferedDocs = 1000;
 
     /** @var array<mixed> */
     protected array $buffer = [];
 
     protected int $execTime;
-
-    protected bool $collect = false;
-
-    protected CollectorService $collectorService;
 
     /**
      * @param array<mixed> $options
@@ -58,26 +52,9 @@ class LuceneCacheBackend extends AbstractBackend implements TaggableBackendInter
         parent::__construct($context, $options);
 
         Zend_Search_Lucene::setTermsPerQueryLimit(PHP_INT_MAX);
-        $this->directory = $options['directory'] ?? GeneralUtility::getFileAbsFileName(Environment::getVarPath() . '/weakbit/lucene-cache/' . $context . '/' . $this->indexName);
-        if (is_dir($this->directory)) {
-            $this->index = Zend_Search_Lucene::open($this->directory);
-        } else {
-            if (false === GeneralUtility::mkdir_deep($this->directory)) {
-                throw new Exception('Could not create temporary directory ' . $this->directory);
-            }
-
-            $this->index = Zend_Search_Lucene::create($this->directory);
-        }
-
         Zend_Search_Lucene_Analysis_Analyzer::setDefault(new SingleSpaceTokenzier());
         $this->execTime = GeneralUtility::makeInstance(Context::class)->getPropertyFromAspect('date', 'timestamp');
         register_shutdown_function([$this, 'shutdown']);
-
-        $context = Environment::getContext();
-        if (!$context->isTesting() && ExtensionManagementUtility::isLoaded('aus_metrics_exporter')) {
-            $this->collect = true;
-            $this->collectorService = GeneralUtility::makeInstance(CollectorService::class);
-        }
     }
 
     /**
@@ -108,9 +85,77 @@ class LuceneCacheBackend extends AbstractBackend implements TaggableBackendInter
         if (count($this->buffer) > $this->maxBufferedDocs) {
             $this->commit();
         }
-
-        $this->collect('inserts');
     }
+
+    protected function commit(): void
+    {
+        if (!$this->buffer) {
+            return;
+        }
+
+        $identifiers = array_keys($this->buffer);
+        $index = $this->getIndex();
+        $maxBufferedDocks = $index->getMaxBufferedDocs();
+        $index->setMaxBufferedDocs(count($identifiers) + 10);
+
+        // delete the current entry, lucene cant replace
+        foreach ($identifiers as $identifier) {
+            $hits = $index->find('identifier:"' . $identifier . '"');
+            foreach ($hits as $hit) {
+                $index->delete($hit->id);
+            }
+        }
+
+        foreach ($this->buffer as $entryIdentifier => $item) {
+            $data = $item['content'];
+            assert(is_string($data));
+            $expires = $item['lifetime'];
+            $tags = implode(' ', $item['tags']);
+
+            if ($this->compression) {
+                $data = gzcompress($data, $this->compressionLevel);
+                if (false === $data) {
+                    throw new RuntimeException('Could not compress data');
+                }
+            }
+
+            $doc = new Document();
+            $doc->addField(Field::keyword('identifier', $entryIdentifier));
+            $doc->addField(Field::binary('content', $data));
+            $doc->addField(Field::unStored('tags', $tags));
+            $doc->addField(Field::unStored('lifetime', $expires));
+
+            $index->addDocument($doc);
+        }
+
+        $index->commit();
+
+        $index->setMaxBufferedDocs($maxBufferedDocks);
+
+        $this->buffer = [];
+    }
+
+    private function getIndex(): Zend_Search_Lucene_Interface
+    {
+        if (is_dir($this->cacheDirectory)) {
+            try {
+                return Zend_Search_Lucene::open($this->cacheDirectory);
+            } catch (Zend_Search_Lucene_Exception | Zend_Search_Exception) {
+            }
+        }
+
+        if (false === GeneralUtility::mkdir_deep($this->cacheDirectory)) {
+            throw new Exception('Could not create temporary directory ' . $this->cacheDirectory);
+        }
+
+        return Zend_Search_Lucene::create($this->cacheDirectory);
+    }
+
+    public function setMaxBufferedDocs(int $maxBufferedDocs): void
+    {
+        $this->maxBufferedDocs = abs($maxBufferedDocs);
+    }
+
 
     /**
      * @param string $entryIdentifier
@@ -118,12 +163,11 @@ class LuceneCacheBackend extends AbstractBackend implements TaggableBackendInter
     public function get($entryIdentifier): mixed
     {
         if (isset($this->buffer[$entryIdentifier])) {
-            $this->collect('hits');
             return $this->buffer[$entryIdentifier]['content'];
         }
 
         // before we search something, the index will commit internally
-        $hits = $this->index->find('identifier:"' . $entryIdentifier . '"');
+        $hits = $this->getIndex()->find('identifier:"' . $entryIdentifier . '"');
 
         $data = $hits === [] ? false : $hits[0]->content;
         if (!$data) {
@@ -134,7 +178,6 @@ class LuceneCacheBackend extends AbstractBackend implements TaggableBackendInter
             return gzuncompress($data);
         }
 
-        $this->collect('hits');
         return $data;
     }
 
@@ -148,7 +191,7 @@ class LuceneCacheBackend extends AbstractBackend implements TaggableBackendInter
         }
 
         // before we search something, the index will commit internally
-        $hits = $this->index->find('identifier:"' . $entryIdentifier . '"');
+        $hits = $this->getIndex()->find('identifier:"' . $entryIdentifier . '"');
         return $hits !== [];
     }
 
@@ -158,15 +201,14 @@ class LuceneCacheBackend extends AbstractBackend implements TaggableBackendInter
     public function remove($entryIdentifier): bool
     {
         if (isset($this->buffer[$entryIdentifier])) {
-            $this->collect('removes');
             unset($this->buffer[$entryIdentifier]);
         }
 
+        $index = $this->getIndex();
         // before we search something, the index will commit internally
-        $hits = $this->index->find('identifier:"' . $entryIdentifier . '"');
+        $hits = $index->find('identifier:"' . $entryIdentifier . '"');
         foreach ($hits as $hit) {
-            $this->collect('removes');
-            $this->index->delete($hit->id);
+            $index->delete($hit->id);
         }
 
         return true;
@@ -174,11 +216,16 @@ class LuceneCacheBackend extends AbstractBackend implements TaggableBackendInter
 
     public function flush(): void
     {
-        $this->collect('flushes');
         $this->buffer = [];
-        unset($this->index);
-        Zend_Search_Lucene::create($this->directory);
-        $this->index = Zend_Search_Lucene::open($this->directory);
+        $index = $this->getIndex();
+        Zend_Search_Lucene_Search_Query_Wildcard::setMinPrefixLength(0);
+        $wildcard = new Zend_Search_Lucene_Search_Query_Wildcard(new Zend_Search_Lucene_Index_Term('identifier:*'));
+        $hits = $index->find($wildcard);
+        foreach ($hits as $hit) {
+            $index->delete($hit->id);
+        }
+
+        $index->optimize();
     }
 
     /**
@@ -187,26 +234,26 @@ class LuceneCacheBackend extends AbstractBackend implements TaggableBackendInter
     public function flushByTag($tag): void
     {
         $this->commit();
-        $this->collect('flushes-by-tag');
         $query = Zend_Search_Lucene_Search_QueryParser::parse('tags:"' . addslashes($tag) . '"');
-        $hits = $this->index->find($query);
+        $index = $this->getIndex();
+        $hits = $index->find($query);
         foreach ($hits as $hit) {
-            $this->index->delete($hit);
+            $index->delete($hit);
         }
     }
 
     public function flushByTags(array $tags): void
     {
         $this->commit();
-        $this->collect('flushes-by-tags');
         $escapedTags = array_map(static fn($tag): string => '"' . addslashes($tag) . '"', $tags);
         $queryStr = 'tags:(' . implode(' OR ', $escapedTags) . ')';
 
         $query = Zend_Search_Lucene_Search_QueryParser::parse($queryStr);
-        $hits = $this->index->find($query);
+        $index = $this->getIndex();
+        $hits = $index->find($query);
 
         foreach ($hits as $hit) {
-            $this->index->delete($hit);
+            $index->delete($hit);
         }
     }
 
@@ -218,7 +265,7 @@ class LuceneCacheBackend extends AbstractBackend implements TaggableBackendInter
     {
         $this->commit();
         $query = Zend_Search_Lucene_Search_QueryParser::parse('tags:"' . addslashes($tag) . '"');
-        $hits = $this->index->find($query);
+        $hits = $this->getIndex()->find($query);
         $identifiers = [];
         foreach ($hits as $hit) {
             $identifiers[] = $hit->identifier;
@@ -237,12 +284,13 @@ class LuceneCacheBackend extends AbstractBackend implements TaggableBackendInter
             false
         );
 
-        $hits = $this->index->find($query);
+        $index = $this->getIndex();
+        $hits = $index->find($query);
         foreach ($hits as $hit) {
-            $this->index->delete($hit->id);
+            $index->delete($hit->id);
         }
 
-        $this->index->commit();
+        $index->commit();
     }
 
     public function setCompression(bool $compression): void
@@ -266,78 +314,8 @@ class LuceneCacheBackend extends AbstractBackend implements TaggableBackendInter
         $this->compressionLevel = $compressionLevel;
     }
 
-    public function setMaxBufferedDocs(int $maxBufferedDocs): void
-    {
-        $this->maxBufferedDocs = abs($maxBufferedDocs);
-    }
-
-    public function setIndexName(string $indexName): void
-    {
-        $this->indexName = filter_var($indexName, FILTER_CALLBACK, [
-            'options' => static function ($value): ?string {
-                $value = (string)$value;
-                return preg_replace('/[^a-zA-Z0-9\-_]/', '', $value);
-            },
-        ]);
-    }
-
-    protected function commit(): void
-    {
-        if (!$this->buffer) {
-            return;
-        }
-
-        $identifiers = array_keys($this->buffer);
-
-        $maxBufferedDocks = $this->index->getMaxBufferedDocs();
-        $this->index->setMaxBufferedDocs(count($identifiers) + 10);
-
-        // delete the current entry, lucene cant replace
-        foreach ($identifiers as $identifier) {
-            $hits = $this->index->find('identifier:"' . $identifier . '"');
-            foreach ($hits as $hit) {
-                $this->index->delete($hit->id);
-            }
-        }
-
-        foreach ($this->buffer as $entryIdentifier => $item) {
-            $data = $item['content'];
-            assert(is_string($data));
-            $expires = $item['lifetime'];
-            $tags = implode(' ', $item['tags']);
-
-            if ($this->compression) {
-                $data = gzcompress($data, $this->compressionLevel);
-                if (false === $data) {
-                    throw new RuntimeException('Could not compress data');
-                }
-            }
-
-            $doc = new Document();
-            $doc->addField(Field::keyword('identifier', $entryIdentifier));
-            $doc->addField(Field::binary('content', $data));
-            $doc->addField(Field::unStored('tags', $tags));
-            $doc->addField(Field::unStored('lifetime', $expires));
-
-            $this->index->addDocument($doc);
-        }
-
-        $this->index->commit();
-
-        $this->index->setMaxBufferedDocs($maxBufferedDocks);
-
-        $this->buffer = [];
-    }
-
     public function shutdown(): void
     {
         $this->commit();
-    }
-
-    protected function collect(string $string): void
-    {
-        if ($this->collect) {
-            $this->collectorService->collect('weakbit_lucene-cache_' . $string, '1');
-        }
     }
 }

@@ -5,14 +5,17 @@ declare(strict_types=1);
 namespace Weakbit\LuceneCache\Tests\Unit\Cache\Backend;
 
 use Nimut\TestingFramework\TestCase\UnitTestCase;
-use ReflectionMethod;
+use TYPO3\CMS\Core\Cache\CacheManager;
 use TYPO3\CMS\Core\Core\ApplicationContext;
 use TYPO3\CMS\Core\Core\Environment;
+use TYPO3\CMS\Core\Utility\GeneralUtility;
 use Weakbit\LuceneCache\Cache\Backend\LuceneCacheBackend;
 
 class LuceneCacheBackendTest extends UnitTestCase
 {
     protected LuceneCacheBackend $subject;
+
+    protected CacheManager $cacheManager;
 
     protected function setUp(): void
     {
@@ -32,8 +35,22 @@ class LuceneCacheBackendTest extends UnitTestCase
         );
         $GLOBALS['TYPO3_CONF_VARS']['SYS']['fileCreateMask'] ??= '0644';
         $GLOBALS['TYPO3_CONF_VARS']['SYS']['folderCreateMask'] ??= '0755';
+
+
+        $this->cacheManager = GeneralUtility::makeInstance(CacheManager::class);
+        $this->cacheManager->setCacheConfigurations([
+                'lucene_cache_test' => [
+                    'backend' => LuceneCacheBackend::class,
+                    'options' => [
+                        'maxBufferedDocs' => 1000,
+                        'compression' => true,
+                    ],
+                ],
+            ]);
         $GLOBALS['EXEC_TIME'] = time();
-        $this->removeDirectory(Environment::getVarPath() . '/weakbit/');
+        $luceneCacheBackend = $this->cacheManager->getCache('lucene_cache_test')->getBackend();
+        assert($luceneCacheBackend instanceof LuceneCacheBackend);
+        $this->subject = $luceneCacheBackend;
     }
 
     protected function tearDown(): void
@@ -47,8 +64,6 @@ class LuceneCacheBackendTest extends UnitTestCase
      */
     public function testSetAndGetCacheEntries(): void
     {
-        $this->subject = new LuceneCacheBackend('Testing', ['indexName' => 'testing']);
-
         $entryIdentifier = 'uniqueIdentifier';
         $data = 'cachedData';
         $tags = ['aTag'];
@@ -63,8 +78,6 @@ class LuceneCacheBackendTest extends UnitTestCase
      */
     public function testRemoveCacheEntries(): void
     {
-        $this->subject = new LuceneCacheBackend('Testing', ['indexName' => 'testing']);
-
         $entryIdentifier = 'anotherUniqueIdentifier';
         $data = 'dataToCache';
 
@@ -80,8 +93,6 @@ class LuceneCacheBackendTest extends UnitTestCase
      */
     public function testTagRemovalAlsoRemovesAssociatedData(): void
     {
-        $this->subject = new LuceneCacheBackend('Testing', ['indexName' => 'testing']);
-
         $entryIdentifier = 'taggedDataIdentifier';
         $data = 'dataWithTag';
         $tags = ['importantTag'];
@@ -104,8 +115,6 @@ class LuceneCacheBackendTest extends UnitTestCase
 
     public function testTagsRemovalAlsoRemovesAssociatedData(): void
     {
-        $this->subject = new LuceneCacheBackend('Testing', ['indexName' => 'testing']);
-
         $this->subject->set('identifier1', 'whatever data', ['tag1', 'tag2'], 3600);
         $this->subject->set('identifier2', 'whatever data', ['tag2', 'tag3'], 3600);
         $this->subject->set('identifier3', 'whatever data', ['tag4', 'tag5'], 3600);
@@ -118,7 +127,6 @@ class LuceneCacheBackendTest extends UnitTestCase
 
     public function testCommitingTwiceFindsOneActualDocument(): void
     {
-        $this->subject = new LuceneCacheBackend('Testing', ['indexName' => 'testing']);
         $noData = $this->subject->get('notthere');
 
         $this->subject->set('twicecheck', 'whatever data');
@@ -139,8 +147,6 @@ class LuceneCacheBackendTest extends UnitTestCase
      */
     public function testGarbageCollectionRemovesExpiredEntries(): void
     {
-        $this->subject = new LuceneCacheBackend('Testing', ['indexName' => 'testing']);
-
         $entryIdentifierPast = 'pastData';
         $entryIdentifierFuture = 'futureData';
         $dataPast = 'dataWithPastExpiry';
