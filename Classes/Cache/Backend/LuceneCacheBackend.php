@@ -2,8 +2,6 @@
 
 /** @noinspection PhpUnused */
 
-/** @noinspection PhpDocMissingThrowsInspection */
-
 declare(strict_types=1);
 
 namespace Weakbit\LuceneCache\Cache\Backend;
@@ -13,6 +11,7 @@ use RuntimeException;
 use TYPO3\CMS\Core\Cache\Backend\SimpleFileBackend;
 use TYPO3\CMS\Core\Cache\Backend\TaggableBackendInterface;
 use TYPO3\CMS\Core\Context\Context;
+use TYPO3\CMS\Core\Context\Exception\AspectNotFoundException;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use Weakbit\LuceneCache\Tokenizer\SingleSpaceTokenzier;
 use Zend_Search_Exception;
@@ -26,6 +25,7 @@ use Zend_Search_Lucene_Interface;
 use Zend_Search_Lucene_Search_Query_Range;
 use Zend_Search_Lucene_Search_Query_Wildcard;
 use Zend_Search_Lucene_Search_QueryParser;
+use Zend_Search_Lucene_Search_QueryParserException;
 
 class LuceneCacheBackend extends SimpleFileBackend implements TaggableBackendInterface
 {
@@ -46,6 +46,7 @@ class LuceneCacheBackend extends SimpleFileBackend implements TaggableBackendInt
 
     /**
      * @param array<mixed> $options
+     * @throws AspectNotFoundException
      */
     public function __construct(string $context, array $options = [])
     {
@@ -58,10 +59,8 @@ class LuceneCacheBackend extends SimpleFileBackend implements TaggableBackendInt
     }
 
     /**
-     * @param string $entryIdentifier
-     * @param string $data
-     * @param array<string> $tags
-     * @param int $lifetime
+     * @inheritdoc
+     * @throws Exception
      */
     public function set($entryIdentifier, $data, array $tags = [], $lifetime = null): void
     {
@@ -69,8 +68,17 @@ class LuceneCacheBackend extends SimpleFileBackend implements TaggableBackendInt
             throw new Exception('lucene-cache only accepts string');
         }
 
+        // Lifetime of this cache entry in seconds. If NULL is specified, the default lifetime is used. "0" means unlimited lifetime.
         if ($lifetime === null) {
             $lifetime = $this->defaultLifetime;
+        }
+
+        if ($lifetime === 0) {
+            $lifetime = 9999999999;
+        }
+
+        if ($lifetime < 0) {
+            return;
         }
 
         $expires = $this->execTime + $lifetime;
@@ -82,11 +90,16 @@ class LuceneCacheBackend extends SimpleFileBackend implements TaggableBackendInt
         ];
 
         $this->buffer[$entryIdentifier] = $doc;
+
         if (count($this->buffer) > $this->maxBufferedDocs) {
             $this->commit();
         }
     }
 
+    /**
+     * @throws Zend_Search_Exception
+     * @throws Zend_Search_Lucene_Exception
+     */
     protected function commit(): void
     {
         if (!$this->buffer) {
@@ -95,7 +108,7 @@ class LuceneCacheBackend extends SimpleFileBackend implements TaggableBackendInt
 
         $identifiers = array_keys($this->buffer);
         $index = $this->getIndex();
-        $maxBufferedDocks = $index->getMaxBufferedDocs();
+        $maxBufferedDocs = $index->getMaxBufferedDocs();
         $index->setMaxBufferedDocs(count($identifiers) + 10);
 
         // delete the current entry, lucene cant replace
@@ -130,11 +143,16 @@ class LuceneCacheBackend extends SimpleFileBackend implements TaggableBackendInt
 
         $index->commit();
 
-        $index->setMaxBufferedDocs($maxBufferedDocks);
+        $index->setMaxBufferedDocs($maxBufferedDocs);
 
         $this->buffer = [];
     }
 
+    /**
+     * @throws Zend_Search_Exception
+     * @throws Zend_Search_Lucene_Exception
+     * @throws Exception
+     */
     private function getIndex(): Zend_Search_Lucene_Interface
     {
         if (is_dir($this->cacheDirectory)) {
@@ -158,16 +176,18 @@ class LuceneCacheBackend extends SimpleFileBackend implements TaggableBackendInt
 
 
     /**
-     * @param string $entryIdentifier
+     * @inheritdoc
+     * @throws Zend_Search_Lucene_Exception
+     * @throws Exception
      */
     public function get($entryIdentifier): mixed
     {
-        if (isset($this->buffer[$entryIdentifier])) {
+        if (isset($this->buffer[$entryIdentifier]) && $this->buffer[$entryIdentifier]['lifetime'] > $this->execTime) {
             return $this->buffer[$entryIdentifier]['content'];
         }
 
         // before we search something, the index will commit internally
-        $hits = $this->getIndex()->find('identifier:"' . $entryIdentifier . '"');
+        $hits = $this->getIndex()->find('identifier:"' . $entryIdentifier . '" ' . $this->appendLifetimeQuery());
 
         $data = $hits === [] ? false : $hits[0]->content;
         if (!$data) {
@@ -181,22 +201,31 @@ class LuceneCacheBackend extends SimpleFileBackend implements TaggableBackendInt
         return $data;
     }
 
+    private function appendLifetimeQuery(): string
+    {
+        return 'AND lifetime:[' . $this->execTime . ' TO 9999999999]';
+    }
+
     /**
-     * @param string $entryIdentifier
+     * @inheritdoc
+     * @throws Zend_Search_Exception
+     * @throws Zend_Search_Lucene_Exception
      */
     public function has($entryIdentifier): bool
     {
-        if (isset($this->buffer[$entryIdentifier])) {
+        if (isset($this->buffer[$entryIdentifier]) && $this->buffer[$entryIdentifier]['lifetime'] > $this->execTime) {
             return true;
         }
 
         // before we search something, the index will commit internally
-        $hits = $this->getIndex()->find('identifier:"' . $entryIdentifier . '"');
+        $hits = $this->getIndex()->find('identifier:"' . $entryIdentifier . '" ' . $this->appendLifetimeQuery());
         return $hits !== [];
     }
 
     /**
-     * @param string $entryIdentifier
+     * @inheritdoc
+     * @throws Zend_Search_Exception
+     * @throws Zend_Search_Lucene_Exception
      */
     public function remove($entryIdentifier): bool
     {
@@ -214,6 +243,11 @@ class LuceneCacheBackend extends SimpleFileBackend implements TaggableBackendInt
         return true;
     }
 
+    /**
+     * @inheritdoc
+     * @throws Zend_Search_Exception
+     * @throws Zend_Search_Lucene_Exception
+     */
     public function flush(): void
     {
         $this->buffer = [];
@@ -229,7 +263,10 @@ class LuceneCacheBackend extends SimpleFileBackend implements TaggableBackendInt
     }
 
     /**
-     * @param string $tag
+     * @inheritdoc
+     * @throws Zend_Search_Exception
+     * @throws Zend_Search_Lucene_Exception
+     * @throws Zend_Search_Lucene_Search_QueryParserException
      */
     public function flushByTag($tag): void
     {
@@ -240,8 +277,16 @@ class LuceneCacheBackend extends SimpleFileBackend implements TaggableBackendInt
         foreach ($hits as $hit) {
             $index->delete($hit);
         }
+
+        $index->commit();
     }
 
+    /**
+     * @inheritdoc
+     * @throws Zend_Search_Exception
+     * @throws Zend_Search_Lucene_Exception
+     * @throws Zend_Search_Lucene_Search_QueryParserException
+     */
     public function flushByTags(array $tags): void
     {
         $this->commit();
@@ -255,16 +300,20 @@ class LuceneCacheBackend extends SimpleFileBackend implements TaggableBackendInt
         foreach ($hits as $hit) {
             $index->delete($hit);
         }
+
+        $this->commit();
     }
 
     /**
+     * @inheritdoc
      * @param string $tag
      * @return array<string>
+     * @throws Zend_Search_Exception
      */
     public function findIdentifiersByTag($tag): array
     {
         $this->commit();
-        $query = Zend_Search_Lucene_Search_QueryParser::parse('tags:"' . addslashes($tag) . '"');
+        $query = Zend_Search_Lucene_Search_QueryParser::parse('tags:"' . addslashes($tag) . '"' . $this->appendLifetimeQuery());
         $hits = $this->getIndex()->find($query);
         $identifiers = [];
         foreach ($hits as $hit) {
@@ -274,9 +323,15 @@ class LuceneCacheBackend extends SimpleFileBackend implements TaggableBackendInt
         return $identifiers;
     }
 
+    /**
+     * @inheritdoc
+     * @throws Zend_Search_Exception
+     * @throws Zend_Search_Lucene_Exception
+     */
     public function collectGarbage(): void
     {
         $this->commit();
+
         // get all documents from the past
         $query = new Zend_Search_Lucene_Search_Query_Range(
             null,
@@ -314,7 +369,11 @@ class LuceneCacheBackend extends SimpleFileBackend implements TaggableBackendInt
         $this->compressionLevel = $compressionLevel;
     }
 
-    public function shutdown(): void
+    /**
+     * @throws Zend_Search_Exception
+     * @throws Zend_Search_Lucene_Exception
+     */
+    private function shutdown(): void
     {
         $this->commit();
     }

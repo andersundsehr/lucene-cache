@@ -42,7 +42,8 @@ class LuceneCacheBackendTest extends UnitTestCase
                 'lucene_cache_test' => [
                     'backend' => LuceneCacheBackend::class,
                     'options' => [
-                        'maxBufferedDocs' => 1000,
+                        // Force the commit on every set
+                        'maxBufferedDocs' => 0,
                         'compression' => true,
                     ],
                 ],
@@ -166,32 +167,24 @@ class LuceneCacheBackendTest extends UnitTestCase
         $this->assertTrue($this->subject->has($entryIdentifierFuture), 'Future data should remain after garbage collection.');
     }
 
-    protected function removeDirectory(string $dir): bool
+    public function testSetGetCacheEntriesWithLifetime(): void
     {
-        if (!file_exists($dir)) {
-            return true;
-        }
+        $entryIdentifier = 'uniqueIdentifierLifetime';
+        $data = 'cachedData';
+        $tags = ['aTag'];
+        $lifetime = 3600;
 
-        if (!is_dir($dir)) {
-            return unlink($dir);
-        }
+        $reflection = new \ReflectionClass($this->subject);
+        $execTimeProperty = $reflection->getProperty('execTime');
+        $execTimeProperty->setAccessible(true);
 
-        /** @var array<string> $content */
-        $content = scandir($dir);
-        foreach ($content as $item) {
-            if ($item == '.') {
-                continue;
-            }
+        $this->subject->set($entryIdentifier, $data, $tags, $lifetime);
 
-            if ($item == '..') {
-                continue;
-            }
+        $this->assertSame($data, $this->subject->get($entryIdentifier), 'Data should be available before it expires.');
 
-            if (!$this->removeDirectory($dir . DIRECTORY_SEPARATOR . $item)) {
-                return false;
-            }
-        }
+        $oldTime = $execTimeProperty->getValue($this->subject);
+        $execTimeProperty->setValue($this->subject, $oldTime + $lifetime + 1);
 
-        return rmdir($dir);
+        $this->assertFalse($this->subject->get($entryIdentifier), 'Data should be expired after the lifetime has passed.');
     }
 }

@@ -1,6 +1,11 @@
 parameters:
 	ignoreErrors:
 		-
+			message: "#^Method Weakbit\\\\LuceneCache\\\\Cache\\\\Backend\\\\LuceneCacheBackend\\:\\:set\\(\\) has parameter \\$tags with no value type specified in iterable type array\\.$#"
+			count: 1
+			path: Classes/Cache/Backend/LuceneCacheBackend.php
+
+		-
 			message: "#^Method TYPO3\\\\CMS\\\\Core\\\\Domain\\\\Page\\:\\:toArray\\(\\) invoked with 1 parameter, 0 required\\.$#"
 			count: 1
 			path: Classes/Transformer/PageTransformer.php
