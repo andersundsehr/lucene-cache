@@ -28,12 +28,6 @@
   "suggest": {
     "rybakit/msgpack": "To get a smaller and faster serialization of data"
   },
-  "repositories": [
-    {
-      "type": "git",
-      "url": "https://github.com/andersundsehr/aus_metrics_exporter.git"
-    }
-  ],
   "minimum-stability": "dev",
   "prefer-stable": true,
   "autoload": {
