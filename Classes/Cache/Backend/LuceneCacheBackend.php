@@ -44,6 +44,8 @@ class LuceneCacheBackend extends SimpleFileBackend implements TaggableBackendInt
 
     protected int $execTime;
 
+    protected bool $optimize = false;
+
     /**
      * @param array<mixed> $options
      * @throws AspectNotFoundException
@@ -259,7 +261,9 @@ class LuceneCacheBackend extends SimpleFileBackend implements TaggableBackendInt
             $index->delete($hit->id);
         }
 
-        $index->optimize();
+        if ($this->optimize) {
+            $index->optimize();
+        }
     }
 
     /**
@@ -277,8 +281,6 @@ class LuceneCacheBackend extends SimpleFileBackend implements TaggableBackendInt
         foreach ($hits as $hit) {
             $index->delete($hit);
         }
-
-        $index->commit();
     }
 
     /**
@@ -300,8 +302,6 @@ class LuceneCacheBackend extends SimpleFileBackend implements TaggableBackendInt
         foreach ($hits as $hit) {
             $index->delete($hit);
         }
-
-        $this->commit();
     }
 
     /**
@@ -344,13 +344,16 @@ class LuceneCacheBackend extends SimpleFileBackend implements TaggableBackendInt
         foreach ($hits as $hit) {
             $index->delete($hit->id);
         }
-
-        $index->commit();
     }
 
     public function setCompression(bool $compression): void
     {
         $this->compression = $compression;
+    }
+
+    public function setOptimize(bool $optimize): void
+    {
+        $this->optimize = $optimize;
     }
 
     /**
