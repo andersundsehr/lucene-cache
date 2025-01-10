@@ -431,7 +431,13 @@ class LuceneCacheBackend extends SimpleFileBackend implements TaggableBackendInt
         foreach ($hits as $hit) {
             $doc = $hit->getDocument();
 
-            $lifetime = (int)$doc->getFieldValue('lifetime');
+            // Previously the field was not stored, so this invalidates the old cache
+            try {
+                $lifetime = (int)$doc->getFieldValue('lifetime');
+            } /** @noinspection PhpRedundantCatchClauseInspection */ catch (Zend_Search_Lucene_Exception) {
+                $toRemove[] = $hit->id;
+                continue;
+            }
 
             if ($lifetime < $this->execTime) {
                 $toRemove[] = $hit->id;
