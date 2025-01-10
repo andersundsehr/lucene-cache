@@ -26,6 +26,7 @@
     "typo3/cms-adminpanel": "^11.0 || ^12.0"
   },
   "suggest": {
+    "ext-zlib": "Possibility to save disk space",
     "rybakit/msgpack": "To get a smaller and faster serialization of data"
   },
   "minimum-stability": "dev",

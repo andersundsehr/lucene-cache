@@ -22,8 +22,11 @@ use Zend_Search_Lucene_Exception;
 use Zend_Search_Lucene_Field as Field;
 use Zend_Search_Lucene_Index_Term;
 use Zend_Search_Lucene_Interface;
+use Zend_Search_Lucene_Proxy;
 use Zend_Search_Lucene_Search_Query_Range;
+use Zend_Search_Lucene_Search_Query_Term;
 use Zend_Search_Lucene_Search_Query_Wildcard;
+use Zend_Search_Lucene_Search_QueryHit;
 use Zend_Search_Lucene_Search_QueryParser;
 use Zend_Search_Lucene_Search_QueryParserException;
 
@@ -128,6 +131,7 @@ class LuceneCacheBackend extends SimpleFileBackend implements TaggableBackendInt
             $tags = implode(' ', $item['tags']);
 
             if ($this->compression) {
+                /** @noinspection PhpComposerExtensionStubsInspection */
                 $data = gzcompress($data, $this->compressionLevel);
                 if (false === $data) {
                     throw new RuntimeException('Could not compress data');
@@ -138,8 +142,7 @@ class LuceneCacheBackend extends SimpleFileBackend implements TaggableBackendInt
             $doc->addField(Field::keyword('identifier', $entryIdentifier));
             $doc->addField(Field::binary('content', $data));
             $doc->addField(Field::unStored('tags', $tags));
-            $doc->addField(Field::unStored('lifetime', $expires));
-
+            $doc->addField(Field::unIndexed('lifetime', $expires));
             $index->addDocument($doc);
         }
 
@@ -155,11 +158,13 @@ class LuceneCacheBackend extends SimpleFileBackend implements TaggableBackendInt
      * @throws Zend_Search_Lucene_Exception
      * @throws Exception
      */
-    private function getIndex(): Zend_Search_Lucene_Interface
+    private function getIndex(): Zend_Search_Lucene_Proxy
     {
         if (is_dir($this->cacheDirectory)) {
             try {
-                return Zend_Search_Lucene::open($this->cacheDirectory);
+                $proxy = Zend_Search_Lucene::open($this->cacheDirectory);
+                assert($proxy instanceof Zend_Search_Lucene_Proxy);
+                return $proxy;
             } catch (Zend_Search_Lucene_Exception | Zend_Search_Exception) {
             }
         }
@@ -168,14 +173,15 @@ class LuceneCacheBackend extends SimpleFileBackend implements TaggableBackendInt
             throw new Exception('Could not create temporary directory ' . $this->cacheDirectory);
         }
 
-        return Zend_Search_Lucene::create($this->cacheDirectory);
+        $proxy = Zend_Search_Lucene::create($this->cacheDirectory);
+        assert($proxy instanceof Zend_Search_Lucene_Proxy);
+        return $proxy;
     }
 
     public function setMaxBufferedDocs(int $maxBufferedDocs): void
     {
         $this->maxBufferedDocs = abs($maxBufferedDocs);
     }
-
 
     /**
      * @inheritdoc
@@ -189,23 +195,25 @@ class LuceneCacheBackend extends SimpleFileBackend implements TaggableBackendInt
         }
 
         // before we search something, the index will commit internally
-        $hits = $this->getIndex()->find('identifier:"' . $entryIdentifier . '" ' . $this->appendLifetimeQuery());
+        $index = $this->getIndex();
 
-        $data = $hits === [] ? false : $hits[0]->content;
+        $query = new Zend_Search_Lucene_Search_Query_Term(
+            new Zend_Search_Lucene_Index_Term($entryIdentifier, 'identifier')
+        );
+        $hits = $index->find($query);
+        $hits = $this->filterByLifetime($index, $hits);
+
+        $data = $hits === [] ? false : $hits[0]->getDocument()->getFieldValue('content');
         if (!$data) {
             return $data;
         }
 
         if ($this->compression) {
+            /** @noinspection PhpComposerExtensionStubsInspection */
             return gzuncompress($data);
         }
 
         return $data;
-    }
-
-    private function appendLifetimeQuery(): string
-    {
-        return 'AND lifetime:[' . $this->execTime . ' TO 9999999999]';
     }
 
     /**
@@ -219,8 +227,12 @@ class LuceneCacheBackend extends SimpleFileBackend implements TaggableBackendInt
             return true;
         }
 
-        // before we search something, the index will commit internally
-        $hits = $this->getIndex()->find('identifier:"' . $entryIdentifier . '" ' . $this->appendLifetimeQuery());
+        $index = $this->getIndex();
+        $query = new Zend_Search_Lucene_Search_Query_Term(
+            new Zend_Search_Lucene_Index_Term($entryIdentifier, 'identifier')
+        );
+        $hits = $index->find($query);
+        $hits = $this->filterByLifetime($index, $hits);
         return $hits !== [];
     }
 
@@ -235,12 +247,18 @@ class LuceneCacheBackend extends SimpleFileBackend implements TaggableBackendInt
             unset($this->buffer[$entryIdentifier]);
         }
 
-        $index = $this->getIndex();
         // before we search something, the index will commit internally
-        $hits = $index->find('identifier:"' . $entryIdentifier . '"');
+        $index = $this->getIndex();
+        $query = new Zend_Search_Lucene_Search_Query_Term(
+            new Zend_Search_Lucene_Index_Term($entryIdentifier, 'identifier')
+        );
+
+        $hits = $index->find($query);
         foreach ($hits as $hit) {
             $index->delete($hit->id);
         }
+
+        $index->commit();
 
         return true;
     }
@@ -275,12 +293,18 @@ class LuceneCacheBackend extends SimpleFileBackend implements TaggableBackendInt
     public function flushByTag($tag): void
     {
         $this->commit();
-        $query = Zend_Search_Lucene_Search_QueryParser::parse('tags:"' . addslashes($tag) . '"');
+        $query = new Zend_Search_Lucene_Search_Query_Term(
+            new Zend_Search_Lucene_Index_Term($tag, 'tags')
+        );
+
         $index = $this->getIndex();
         $hits = $index->find($query);
+
         foreach ($hits as $hit) {
             $index->delete($hit);
         }
+
+        $index->commit();
     }
 
     /**
@@ -302,6 +326,8 @@ class LuceneCacheBackend extends SimpleFileBackend implements TaggableBackendInt
         foreach ($hits as $hit) {
             $index->delete($hit);
         }
+
+        $index->commit();
     }
 
     /**
@@ -313,11 +339,17 @@ class LuceneCacheBackend extends SimpleFileBackend implements TaggableBackendInt
     public function findIdentifiersByTag($tag): array
     {
         $this->commit();
-        $query = Zend_Search_Lucene_Search_QueryParser::parse('tags:"' . addslashes($tag) . '"' . $this->appendLifetimeQuery());
-        $hits = $this->getIndex()->find($query);
+        $query = new Zend_Search_Lucene_Search_Query_Term(
+            new Zend_Search_Lucene_Index_Term($tag, 'tags')
+        );
+
+        $index = $this->getIndex();
+        $hits = $index->find($query);
+        $hits = $this->filterByLifetime($index, $hits);
+
         $identifiers = [];
         foreach ($hits as $hit) {
-            $identifiers[] = $hit->identifier;
+            $identifiers[] = $hit->getDocument()->getFieldValue('identifier');
         }
 
         return $identifiers;
@@ -344,10 +376,16 @@ class LuceneCacheBackend extends SimpleFileBackend implements TaggableBackendInt
         foreach ($hits as $hit) {
             $index->delete($hit->id);
         }
+
+        $index->commit();
     }
 
     public function setCompression(bool $compression): void
     {
+        if ($compression && !function_exists('gzcompress')) {
+            throw new RuntimeException('Compression is not supported');
+        }
+
         $this->compression = $compression;
     }
 
@@ -379,5 +417,37 @@ class LuceneCacheBackend extends SimpleFileBackend implements TaggableBackendInt
     private function shutdown(): void
     {
         $this->commit();
+    }
+
+    /**
+     * @param array<Zend_Search_Lucene_Search_QueryHit> $hits
+     * @return array<Zend_Search_Lucene_Search_QueryHit>
+     * @throws Zend_Search_Lucene_Exception
+     */
+    private function filterByLifetime(Zend_Search_Lucene_Proxy $index, array $hits): array
+    {
+        $toRemove = [];
+        $remainingHits = [];
+        foreach ($hits as $hit) {
+            $doc = $hit->getDocument();
+
+            $lifetime = (int)$doc->getFieldValue('lifetime');
+
+            if ($lifetime < $this->execTime) {
+                $toRemove[] = $hit->id;
+            } else {
+                $remainingHits[] = $hit;
+            }
+        }
+
+        if ($toRemove !== []) {
+            foreach ($toRemove as $docId) {
+                $index->delete($docId);
+            }
+
+            $index->commit();
+        }
+
+        return $remainingHits;
     }
 }

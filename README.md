@@ -17,39 +17,6 @@ To use the lucene-cache backend in your TYPO3 project, follow these steps:
 composer require andersundsehr/lucene-cache
 ```
 
-### Configure the Cache Backend
-
-In your TYPO3 configuration, typically in LocalConfiguration.php or AdditionalConfiguration.php, additional.php, settings.php or even ext_localconf.php you need to configure the cache backend to use Lucene. Here is an example configuration:
-
-```php
-$GLOBALS['TYPO3_CONF_VARS']['SYS']['caching']['cacheConfigurations']['pages'] = [
-    'frontend' => \TYPO3\CMS\Core\Cache\Frontend\VariableFrontend::class,
-    'backend' => \Weakbit\LuceneCache\Cache\Backend\LuceneCacheBackend::class,
-    'options' => [
-        'defaultLifetime' => 604800,
-        'indexName' => 'pages',
-        'maxBufferedDocs' => 1000,
-    ],
-    'groups' => [
-      'pages',
-    ]
-];
-```
-
-
-### Example Usage
-After configuring the lucene-cache backend, TYPO3 will use Lucene for caching pages or other cache configurations you have specified. You can verify the caching behavior by checking the specified index path for Lucene index files and monitoring the performance improvements in your TYPO3 installation.
-
-Additional Resources
-For more detailed information, refer to the following resources:
-
-[Lucene-cache GitHub Repository](https://github.com/andersundsehr/lucene-cache)
-
-[TYPO3 Documentation on Caching Framework](https://docs.typo3.org/m/typo3/reference-coreapi/12.4/en-us/ApiOverview/CachingFramework/Index.html****)
-
-These resources provide comprehensive documentation and examples to help you get started with the lucene-cache backend for TYPO3.
-
-
 ### Example Configuration for the Cache
 ```php
 $GLOBALS['TYPO3_CONF_VARS']['SYS']['caching']['cacheConfigurations']['pages'] = [
@@ -57,9 +24,9 @@ $GLOBALS['TYPO3_CONF_VARS']['SYS']['caching']['cacheConfigurations']['pages'] = 
     'backend' => \Weakbit\LuceneCache\Cache\Backend\LuceneCacheBackend::class,
     'options' => [
         'defaultLifetime' => 604800,
-        'indexName' => 'pages',
         'maxBufferedDocs' => 1000,
         'optimize' => false,
+        'compress' => true,
     ],
     'groups' => [
       'pages',
@@ -77,27 +44,44 @@ maxBufferedDocs is set to 1000 here, that means that up to 1000 documents are bu
 
 Keep in mind that some operations (flushes and garbage collection) will always commit the buffer first to have a full index to search in.
 
+
 #### optimize
 
 The optimize setting sounds like a always good idea, but it is a very ressource intensive job so it is disabled by default.
+
+### compress
+
+Filters the data through gzcompress (must be compiled into your PHP installation) to reduce data
 
 ### Keep in mind 
 
 This extenion relies on using the SingleSpaceTokenizer with the lucene package, so if you already use lucene in your project, your tokenizer is overwritten which could lead into problems.
 *This is a todo we work on*
 
+Use the proper cache technology for your needs, lucene may fit well for a page cache with lots of entries and tags, while others with more write/read operations go better with database/redis or even apcu if you do not have concurrency problems.
+
 # Considerdations
 
 In the example
 ```
-    'frontend' => \TYPO3\CMS\Core\Cache\Frontend\VariableFrontend::class,
+'frontend' => \TYPO3\CMS\Core\Cache\Frontend\VariableFrontend::class,
 ```
-Was set, that is the default frontend. This extension ships with the dropin replacement
+Was set, that is the default frontend. This extension ships with the dropin
 ```
-    'frontend' => \Weakbit\LuceneCache\Cache\Frontend\VariableFrontend::class,
+'frontend' => \Weakbit\LuceneCache\Cache\Frontend\VariableFrontend::class,
 ```
 
 Which uses igbinary if installed, or msgpack if installed. These have some improvements in performance, but you may go with the default frontent as well.
+
+# Additional Resources
+
+For more detailed information, refer to the following resources:
+
+[Lucene-cache GitHub Repository](https://github.com/andersundsehr/lucene-cache)
+
+[TYPO3 Documentation on Caching Framework](https://docs.typo3.org/m/typo3/reference-coreapi/12.4/en-us/ApiOverview/CachingFramework/Index.html****)
+
+These resources provide comprehensive documentation and examples to help you get started with the lucene-cache backend for TYPO3.
 
 # Credits
 

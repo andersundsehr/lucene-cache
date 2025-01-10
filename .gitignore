@@ -2,3 +2,4 @@ public
 var
 vendor
 .phpunit.result.cache
+.idea/
