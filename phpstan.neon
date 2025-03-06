@@ -5,3 +5,5 @@ includes:
 parameters:
   level: 8
   reportUnmatchedIgnoredErrors: false
+  excludePaths:
+    - rector.php

@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use PHPStan\Type\Php\PregMatchParameterOutTypeExtension;
 use Rector\DeadCode\Rector\ClassMethod\RemoveUnusedPrivateMethodRector;
 use Rector\Php71\Rector\FuncCall\RemoveExtraParametersRector;
 use Rector\Privatization\Rector\Property\PrivatizeFinalClassPropertyRector;
