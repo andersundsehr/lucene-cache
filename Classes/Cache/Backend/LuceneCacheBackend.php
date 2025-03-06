@@ -273,7 +273,7 @@ class LuceneCacheBackend extends SimpleFileBackend implements TaggableBackendInt
         $this->buffer = [];
         $index = $this->getIndex();
         Zend_Search_Lucene_Search_Query_Wildcard::setMinPrefixLength(0);
-        $wildcard = new Zend_Search_Lucene_Search_Query_Wildcard(new Zend_Search_Lucene_Index_Term('identifier:*'));
+        $wildcard = new Zend_Search_Lucene_Search_Query_Wildcard(new Zend_Search_Lucene_Index_Term('*', 'identifier'));
         $hits = $index->find($wildcard);
         foreach ($hits as $hit) {
             $index->delete($hit->id);

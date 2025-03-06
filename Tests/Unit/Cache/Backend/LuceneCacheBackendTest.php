@@ -4,12 +4,20 @@ declare(strict_types=1);
 
 namespace Weakbit\LuceneCache\Tests\Unit\Cache\Backend;
 
-use Nimut\TestingFramework\TestCase\UnitTestCase;
+use ReflectionClass;
+use ReflectionException;
 use TYPO3\CMS\Core\Cache\CacheManager;
+use TYPO3\CMS\Core\Cache\Exception;
+use TYPO3\CMS\Core\Cache\Exception\InvalidDataException;
+use TYPO3\CMS\Core\Cache\Exception\NoSuchCacheException;
 use TYPO3\CMS\Core\Core\ApplicationContext;
 use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
+use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 use Weakbit\LuceneCache\Cache\Backend\LuceneCacheBackend;
+use Zend_Search_Exception;
+use Zend_Search_Lucene_Exception;
+use Zend_Search_Lucene_Search_QueryParserException;
 
 class LuceneCacheBackendTest extends UnitTestCase
 {
@@ -17,6 +25,11 @@ class LuceneCacheBackendTest extends UnitTestCase
 
     protected CacheManager $cacheManager;
 
+    protected bool $resetSingletonInstances = true;
+
+    /**
+     * @throws NoSuchCacheException
+     */
     protected function setUp(): void
     {
         parent::setUp();
@@ -39,15 +52,15 @@ class LuceneCacheBackendTest extends UnitTestCase
 
         $this->cacheManager = GeneralUtility::makeInstance(CacheManager::class);
         $this->cacheManager->setCacheConfigurations([
-                'lucene_cache_test' => [
-                    'backend' => LuceneCacheBackend::class,
-                    'options' => [
-                        // Force the commit on every set
-                        'maxBufferedDocs' => 0,
-                        'compression' => true,
-                    ],
+            'lucene_cache_test' => [
+                'backend' => LuceneCacheBackend::class,
+                'options' => [
+                    // Force the commit on every set
+                    'maxBufferedDocs' => 0,
+                    'compression' => true,
                 ],
-            ]);
+            ],
+        ]);
         $GLOBALS['EXEC_TIME'] = time();
         $luceneCacheBackend = $this->cacheManager->getCache('lucene_cache_test')->getBackend();
         assert($luceneCacheBackend instanceof LuceneCacheBackend);
@@ -62,6 +75,8 @@ class LuceneCacheBackendTest extends UnitTestCase
 
     /**
      * Test if the backend can set and retrieve cache entries.
+     *
+     * @@throws \Exception
      */
     public function testSetAndGetCacheEntries(): void
     {
@@ -71,11 +86,13 @@ class LuceneCacheBackendTest extends UnitTestCase
         $lifetime = 3600;
 
         $this->subject->set($entryIdentifier, $data, $tags, $lifetime);
-        $this->assertSame($data, $this->subject->get($entryIdentifier));
+        static::assertSame($data, $this->subject->get($entryIdentifier));
     }
 
     /**
      * Test if the backend correctly removes cache entries.
+     *
+     * @throws \Exception
      */
     public function testRemoveCacheEntries(): void
     {
@@ -83,14 +100,16 @@ class LuceneCacheBackendTest extends UnitTestCase
         $data = 'dataToCache';
 
         $this->subject->set($entryIdentifier, $data, [], 3600);
-        $this->assertTrue($this->subject->has($entryIdentifier));
+        static::assertTrue($this->subject->has($entryIdentifier));
 
         $this->subject->remove($entryIdentifier);
-        $this->assertFalse($this->subject->has($entryIdentifier));
+        static::assertFalse($this->subject->has($entryIdentifier));
     }
 
     /**
      * Test tag removal also removes associated data.
+     *
+     * @throws \Exception
      */
     public function testTagRemovalAlsoRemovesAssociatedData(): void
     {
@@ -100,20 +119,45 @@ class LuceneCacheBackendTest extends UnitTestCase
         $lifetime = 3600;
 
         $this->subject->set($entryIdentifier, $data, $tags, $lifetime);
-        $this->assertSame($data, $this->subject->get($entryIdentifier));
+        static::assertSame($data, $this->subject->get($entryIdentifier));
 
         $entryIdentifier = 'taggedDataIdentifier2';
         $tags = ['importantTag2'];
 
         $this->subject->set($entryIdentifier, $data, $tags, $lifetime);
-        $this->assertSame($data, $this->subject->get($entryIdentifier));
+        static::assertSame($data, $this->subject->get($entryIdentifier));
 
         $this->subject->flushByTag('importantTag');
 
-        $this->assertFalse($this->subject->has('taggedDataIdentifier'), 'The data should not be found after removing the tag.');
-        $this->assertTrue($this->subject->has('taggedDataIdentifier2'), 'The data should be found after removing the tag.');
+        static::assertFalse($this->subject->has('taggedDataIdentifier'), 'The data should not be found after removing the tag.');
+        static::assertTrue($this->subject->has('taggedDataIdentifier2'), 'The data should be found after removing the tag.');
     }
 
+    /**
+     * Test flush removes all data
+     *
+     * @throws \Exception
+     */
+    public function testFlushRemovesAllData(): void
+    {
+        $entryIdentifier = 'testFlushRemovesAllData';
+        $data = 'data';
+
+        $this->subject->set($entryIdentifier, $data);
+        self::assertTrue($this->subject->has($entryIdentifier));
+
+        $this->subject->flush();
+
+        self::assertFalse($this->subject->has($entryIdentifier));
+    }
+
+    /**
+     * @throws Exception
+     * @throws InvalidDataException
+     * @throws Zend_Search_Exception
+     * @throws Zend_Search_Lucene_Exception
+     * @throws Zend_Search_Lucene_Search_QueryParserException
+     */
     public function testTagsRemovalAlsoRemovesAssociatedData(): void
     {
         $this->subject->set('identifier1', 'whatever data', ['tag1', 'tag2'], 3600);
@@ -121,11 +165,18 @@ class LuceneCacheBackendTest extends UnitTestCase
         $this->subject->set('identifier3', 'whatever data', ['tag4', 'tag5'], 3600);
 
         $this->subject->flushByTags(['tag1', 'tag2']);
-        $this->assertFalse($this->subject->has('identifier1'), 'The data should not be found after removing the tag.');
-        $this->assertFalse($this->subject->has('identifier2'), 'The data should not be found after removing the tag.');
-        $this->assertTrue($this->subject->has('identifier3'), 'The data should be found after removing the tag.');
+        static::assertFalse($this->subject->has('identifier1'), 'The data should not be found after removing the tag.');
+        static::assertFalse($this->subject->has('identifier2'), 'The data should not be found after removing the tag.');
+        static::assertTrue($this->subject->has('identifier3'), 'The data should be found after removing the tag.');
     }
 
+    /**
+     * @throws Exception
+     * @throws Zend_Search_Exception
+     * @throws Zend_Search_Lucene_Search_QueryParserException
+     * @throws Zend_Search_Lucene_Exception
+     * @throws InvalidDataException
+     */
     public function testCommitingTwiceFindsOneActualDocument(): void
     {
         $noData = $this->subject->get('notthere');
@@ -133,18 +184,20 @@ class LuceneCacheBackendTest extends UnitTestCase
         $this->subject->set('twicecheck', 'whatever data');
         // flush forces a commit from the ram buffer
         $this->subject->flushByTag('sometagthatdoesnotexist');
-        $this->assertFalse($noData);
+        static::assertFalse($noData);
 
         $this->subject->set('twicecheck', 'some other data');
         $this->subject->flushByTag('sometagthatdoesnotexist');
 
         $data = $this->subject->get('twicecheck');
-        $this->assertNotFalse($data);
-        $this->assertSame('some other data', $data);
+        static::assertNotFalse($data);
+        static::assertSame('some other data', $data);
     }
 
     /**
      * Test that the garbage collection function removes expired entries and keeps valid ones.
+     *
+     * @throws \Exception
      */
     public function testGarbageCollectionRemovesExpiredEntries(): void
     {
@@ -163,10 +216,16 @@ class LuceneCacheBackendTest extends UnitTestCase
 
         $this->subject->collectGarbage();
 
-        $this->assertFalse($this->subject->has('pastData0'), 'Past data should be removed by garbage collection.');
-        $this->assertTrue($this->subject->has($entryIdentifierFuture), 'Future data should remain after garbage collection.');
+        static::assertFalse($this->subject->has('pastData0'), 'Past data should be removed by garbage collection.');
+        static::assertTrue($this->subject->has($entryIdentifierFuture), 'Future data should remain after garbage collection.');
     }
 
+    /**
+     * @throws ReflectionException
+     * @throws Exception
+     * @throws InvalidDataException
+     * @throws Zend_Search_Lucene_Exception
+     */
     public function testSetGetCacheEntriesWithLifetime(): void
     {
         $entryIdentifier = 'uniqueIdentifierLifetime';
@@ -174,17 +233,18 @@ class LuceneCacheBackendTest extends UnitTestCase
         $tags = ['aTag'];
         $lifetime = 3600;
 
-        $reflection = new \ReflectionClass($this->subject);
+        $reflection = new ReflectionClass($this->subject);
         $execTimeProperty = $reflection->getProperty('execTime');
+        /** @noinspection PhpExpressionResultUnusedInspection */
         $execTimeProperty->setAccessible(true);
 
         $this->subject->set($entryIdentifier, $data, $tags, $lifetime);
 
-        $this->assertSame($data, $this->subject->get($entryIdentifier), 'Data should be available before it expires.');
+        static::assertSame($data, $this->subject->get($entryIdentifier), 'Data should be available before it expires.');
 
         $oldTime = $execTimeProperty->getValue($this->subject);
         $execTimeProperty->setValue($this->subject, $oldTime + $lifetime + 1);
 
-        $this->assertFalse($this->subject->get($entryIdentifier), 'Data should be expired after the lifetime has passed.');
+        static::assertFalse($this->subject->get($entryIdentifier), 'Data should be expired after the lifetime has passed.');
     }
 }
