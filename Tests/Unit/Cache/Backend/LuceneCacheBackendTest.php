@@ -27,6 +27,7 @@ class LuceneCacheBackendTest extends UnitTestCase
 
     protected bool $resetSingletonInstances = true;
 
+
     /**
      * @throws NoSuchCacheException
      */
@@ -61,7 +62,7 @@ class LuceneCacheBackendTest extends UnitTestCase
                 ],
             ],
         ]);
-        $GLOBALS['EXEC_TIME'] = time();
+        $GLOBALS['EXEC_TIME'] = 1741333418;
         $luceneCacheBackend = $this->cacheManager->getCache('lucene_cache_test')->getBackend();
         assert($luceneCacheBackend instanceof LuceneCacheBackend);
         $this->subject = $luceneCacheBackend;
@@ -205,18 +206,16 @@ class LuceneCacheBackendTest extends UnitTestCase
         $entryIdentifierFuture = 'futureData';
         $dataPast = 'dataWithPastExpiry';
         $dataFuture = 'dataWithFutureExpiry';
-        $expiredLifetime = -3600;  // 1 hour ago
         $futureLifetime = 3600; // 1 hour from now
 
-        for ($i = 0; $i < 1030; $i++) {
-            $this->subject->set($entryIdentifierPast . $i, $dataPast, [], $expiredLifetime - $i);
-        }
-
+        $this->subject->set($entryIdentifierPast, $dataPast, [], 1);
         $this->subject->set($entryIdentifierFuture, $dataFuture, [], $futureLifetime);
+
+        $this->addTimeToSubject(300);
 
         $this->subject->collectGarbage();
 
-        static::assertFalse($this->subject->has('pastData0'), 'Past data should be removed by garbage collection.');
+        static::assertFalse($this->subject->has('pastData'), 'Past data should be removed by garbage collection.');
         static::assertTrue($this->subject->has($entryIdentifierFuture), 'Future data should remain after garbage collection.');
     }
 
@@ -233,18 +232,24 @@ class LuceneCacheBackendTest extends UnitTestCase
         $tags = ['aTag'];
         $lifetime = 3600;
 
+        $this->subject->set($entryIdentifier, $data, $tags, $lifetime);
+        static::assertSame($data, $this->subject->get($entryIdentifier), 'Data should be available before it expires.');
+
+        $this->addTimeToSubject(3605);
+        static::assertFalse($this->subject->get($entryIdentifier), 'Data should be expired after the lifetime has passed.');
+    }
+
+    /**
+     * @throws ReflectionException
+     */
+    private function addTimeToSubject(int $int): void
+    {
         $reflection = new ReflectionClass($this->subject);
         $execTimeProperty = $reflection->getProperty('execTime');
         /** @noinspection PhpExpressionResultUnusedInspection */
         $execTimeProperty->setAccessible(true);
 
-        $this->subject->set($entryIdentifier, $data, $tags, $lifetime);
-
-        static::assertSame($data, $this->subject->get($entryIdentifier), 'Data should be available before it expires.');
-
-        $oldTime = $execTimeProperty->getValue($this->subject);
-        $execTimeProperty->setValue($this->subject, $oldTime + $lifetime + 1);
-
-        static::assertFalse($this->subject->get($entryIdentifier), 'Data should be expired after the lifetime has passed.');
+        $previousValue = $execTimeProperty->getValue($this->subject);
+        $execTimeProperty->setValue($this->subject, $previousValue + $int);
     }
 }

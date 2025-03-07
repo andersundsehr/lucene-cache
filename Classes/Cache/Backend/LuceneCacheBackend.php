@@ -118,7 +118,10 @@ class LuceneCacheBackend extends SimpleFileBackend implements TaggableBackendInt
 
         // delete the current entry, lucene cant replace
         foreach ($identifiers as $identifier) {
-            $hits = $index->find('identifier:"' . $identifier . '"');
+            $query = new Zend_Search_Lucene_Search_Query_Term(
+                new Zend_Search_Lucene_Index_Term($identifier, 'identifier')
+            );
+            $hits = $index->find($query);
             foreach ($hits as $hit) {
                 $index->delete($hit->id);
             }
@@ -142,7 +145,7 @@ class LuceneCacheBackend extends SimpleFileBackend implements TaggableBackendInt
             $doc->addField(Field::keyword('identifier', $entryIdentifier));
             $doc->addField(Field::binary('content', $data));
             $doc->addField(Field::unStored('tags', $tags));
-            $doc->addField(Field::unIndexed('lifetime', $expires));
+            $doc->addField(Field::keyword('lifetime', $expires));
             $index->addDocument($doc);
         }
 
