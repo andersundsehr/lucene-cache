@@ -60,19 +60,6 @@ This extenion relies on using the SingleSpaceTokenizer with the lucene package, 
 
 Use the proper cache technology for your needs, lucene may fit well for a page cache with lots of entries and tags, while others with more write/read operations go better with database/redis or even apcu if you do not have concurrency problems.
 
-# Considerdations
-
-In the example
-```
-'frontend' => \TYPO3\CMS\Core\Cache\Frontend\VariableFrontend::class,
-```
-Was set, that is the default frontend. This extension ships with the dropin
-```
-'frontend' => \Weakbit\LuceneCache\Cache\Frontend\VariableFrontend::class,
-```
-
-Which uses igbinary if installed, or msgpack if installed. These have some improvements in performance, but you may go with the default frontent as well.
-
 # Additional Resources
 
 For more detailed information, refer to the following resources:

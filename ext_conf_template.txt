@@ -1,0 +1,12 @@
+# cat=optimization/enable/10; type=boolean; label=Enable Optimization: Enable automatic optimization of Lucene cache indices
+enableOptimization = 1
+
+# cat=optimization/load/10; type=small; label=Max Load (1 min): Maximum system load average for 1 minute before preventing optimization
+maxLoad1min = 3.0
+
+# cat=optimization/load/20; type=small; label=Max Load (5 min): Maximum system load average for 5 minutes before preventing optimization
+maxLoad5min = 2.5
+
+# cat=optimization/load/30; type=small; label=Max Load (15 min): Maximum system load average for 15 minutes before preventing optimization
+maxLoad15min = 2.0
+

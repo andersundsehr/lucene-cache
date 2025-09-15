@@ -13,7 +13,7 @@ use TYPO3\CMS\Core\Cache\Backend\TaggableBackendInterface;
 use TYPO3\CMS\Core\Context\Context;
 use TYPO3\CMS\Core\Context\Exception\AspectNotFoundException;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
-use Weakbit\LuceneCache\Tokenizer\SingleSpaceTokenzier;
+use Weakbit\LuceneCache\Tokenizer\SingleSpaceTokenizer;
 use Zend_Search_Exception;
 use Zend_Search_Lucene;
 use Zend_Search_Lucene_Analysis_Analyzer;
@@ -29,6 +29,8 @@ use Zend_Search_Lucene_Search_Query_Wildcard;
 use Zend_Search_Lucene_Search_QueryHit;
 use Zend_Search_Lucene_Search_QueryParser;
 use Zend_Search_Lucene_Search_QueryParserException;
+
+use function trigger_deprecation;
 
 class LuceneCacheBackend extends SimpleFileBackend implements TaggableBackendInterface
 {
@@ -58,7 +60,7 @@ class LuceneCacheBackend extends SimpleFileBackend implements TaggableBackendInt
         parent::__construct($context, $options);
 
         Zend_Search_Lucene::setTermsPerQueryLimit(PHP_INT_MAX);
-        Zend_Search_Lucene_Analysis_Analyzer::setDefault(new SingleSpaceTokenzier());
+        Zend_Search_Lucene_Analysis_Analyzer::setDefault(new SingleSpaceTokenizer());
         $this->execTime = GeneralUtility::makeInstance(Context::class)->getPropertyFromAspect('date', 'timestamp');
         register_shutdown_function([$this, 'shutdown']);
     }
@@ -172,9 +174,7 @@ class LuceneCacheBackend extends SimpleFileBackend implements TaggableBackendInt
             }
         }
 
-        if (false === GeneralUtility::mkdir_deep($this->cacheDirectory)) {
-            throw new Exception('Could not create temporary directory ' . $this->cacheDirectory);
-        }
+        GeneralUtility::mkdir_deep($this->cacheDirectory);
 
         $proxy = Zend_Search_Lucene::create($this->cacheDirectory);
         assert($proxy instanceof Zend_Search_Lucene_Proxy);
@@ -280,10 +280,6 @@ class LuceneCacheBackend extends SimpleFileBackend implements TaggableBackendInt
         $hits = $index->find($wildcard);
         foreach ($hits as $hit) {
             $index->delete($hit->id);
-        }
-
-        if ($this->optimize) {
-            $index->optimize();
         }
     }
 
@@ -394,7 +390,19 @@ class LuceneCacheBackend extends SimpleFileBackend implements TaggableBackendInt
 
     public function setOptimize(bool $optimize): void
     {
+        trigger_deprecation('weakbit/lucene-cache', '2.0.3', 'Optimization flag is deprecated, remove it from your cache configuration');
         $this->optimize = $optimize;
+    }
+
+    /**
+     * Optimize the Lucene index
+     * @throws Zend_Search_Exception
+     * @throws Zend_Search_Lucene_Exception
+     */
+    public function optimize(): void
+    {
+        $index = $this->getIndex();
+        $index->optimize();
     }
 
     /**
