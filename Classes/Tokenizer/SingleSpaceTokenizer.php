@@ -7,7 +7,7 @@ namespace Weakbit\LuceneCache\Tokenizer;
 use Zend_Search_Lucene_Analysis_Analyzer_Common;
 use Zend_Search_Lucene_Analysis_Token;
 
-class SingleSpaceTokenzier extends Zend_Search_Lucene_Analysis_Analyzer_Common
+class SingleSpaceTokenizer extends Zend_Search_Lucene_Analysis_Analyzer_Common
 {
     protected int $position = 0;
 
@@ -36,7 +36,7 @@ class SingleSpaceTokenzier extends Zend_Search_Lucene_Analysis_Analyzer_Common
         }
     }
 
-    public function nextToken()
+    public function nextToken(): ?Zend_Search_Lucene_Analysis_Token
     {
         if ($this->position < count($this->tokens)) {
             return $this->tokens[$this->position++];
