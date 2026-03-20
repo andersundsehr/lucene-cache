@@ -26,7 +26,7 @@ class SingleSpaceTokenizer extends Zend_Search_Lucene_Analysis_Analyzer_Common
 
         foreach ($terms as $position => $term) {
             $term = trim($term);
-            if ($term != '') {
+            if ($term !== '') {
                 $this->tokens[] = new Zend_Search_Lucene_Analysis_Token(
                     $term,
                     $position,

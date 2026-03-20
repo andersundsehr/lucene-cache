@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace Weakbit\LuceneCache\Event;
 
-use Weakbit\LuceneCache\Cache\Backend\LuceneCacheBackend;
-
 /**
  * Event dispatched when a Lucene cache backend needs optimization
  */

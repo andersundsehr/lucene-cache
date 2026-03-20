@@ -2,17 +2,14 @@
 
 declare(strict_types=1);
 
-use PHPStan\Type\Php\PregMatchParameterOutTypeExtension;
 use Rector\DeadCode\Rector\ClassMethod\RemoveUnusedPrivateMethodRector;
 use Rector\Php71\Rector\FuncCall\RemoveExtraParametersRector;
 use Rector\Privatization\Rector\Property\PrivatizeFinalClassPropertyRector;
 use Rector\Privatization\Rector\ClassMethod\PrivatizeFinalClassMethodRector;
-use Rector\Privatization\Rector\Class_\FinalizeClassesWithoutChildrenRector;
-use Ssch\TYPO3Rector\Rector\v11\v0\DateTimeAspectInsteadOfGlobalsExecTimeRector;
 use PLUS\GrumPHPConfig\RectorSettings;
 use Rector\Config\RectorConfig;
 use Rector\Caching\ValueObject\Storage\FileCacheStorage;
-use Rector\Php81\Rector\ClassConst\FinalizePublicClassConstantRector;
+use Ssch\TYPO3Rector\TYPO311\v0\DateTimeAspectInsteadOfGlobalsExecTimeRector;
 
 return static function (RectorConfig $rectorConfig): void {
     $rectorConfig->parallel();
@@ -29,7 +26,6 @@ return static function (RectorConfig $rectorConfig): void {
     $rectorConfig->sets(
         [
             ...RectorSettings::sets(true),
-            ...RectorSettings::setsTypo3(false),
         ]
     );
 
@@ -38,11 +34,8 @@ return static function (RectorConfig $rectorConfig): void {
     $rectorConfig->skip(
         [
             ...RectorSettings::skip(),
-            ...RectorSettings::skipTypo3(),
-            FinalizePublicClassConstantRector::class,
             PrivatizeFinalClassPropertyRector::class,
             PrivatizeFinalClassMethodRector::class,
-            FinalizeClassesWithoutChildrenRector::class,
             DateTimeAspectInsteadOfGlobalsExecTimeRector::class,
             RemoveExtraParametersRector::class,
             RemoveUnusedPrivateMethodRector::class,

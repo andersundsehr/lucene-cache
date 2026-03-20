@@ -30,17 +30,25 @@ use Zend_Search_Lucene_Search_QueryHit;
 use Zend_Search_Lucene_Search_QueryParser;
 use Zend_Search_Lucene_Search_QueryParserException;
 
-use function trigger_deprecation;
-
 class LuceneCacheBackend extends SimpleFileBackend implements TaggableBackendInterface
 {
-    protected Zend_Search_Lucene_Interface $index;
-
     protected string $directory;
 
     protected bool $compression = false;
 
     protected int $compressionLevel = -1;
+
+    /**
+     * Compression algorithm: 'zstd', 'gzdeflate', 'gzcompress'
+     * Will auto-detect best available if not set.
+     */
+    protected string $compressionAlgorithm = '';
+
+    /**
+     * Minimum data size in bytes to apply compression.
+     * Compressing very small data adds overhead without benefit.
+     */
+    protected int $compressionMinSize = 256;
 
     protected int $maxBufferedDocs = 1000;
 
@@ -55,26 +63,22 @@ class LuceneCacheBackend extends SimpleFileBackend implements TaggableBackendInt
      * @param array<mixed> $options
      * @throws AspectNotFoundException
      */
-    public function __construct(string $context, array $options = [])
+    public function __construct(array $options = [])
     {
-        parent::__construct($context, $options);
+        parent::__construct($options);
 
         Zend_Search_Lucene::setTermsPerQueryLimit(PHP_INT_MAX);
-        Zend_Search_Lucene_Analysis_Analyzer::setDefault(new SingleSpaceTokenizer());
         $this->execTime = GeneralUtility::makeInstance(Context::class)->getPropertyFromAspect('date', 'timestamp');
         register_shutdown_function([$this, 'shutdown']);
     }
 
     /**
      * @inheritdoc
+     * @param array<mixed> $tags
      * @throws Exception
      */
-    public function set($entryIdentifier, $data, array $tags = [], $lifetime = null): void
+    public function set(string $entryIdentifier, string $data, array $tags = [], ?int $lifetime = null): void
     {
-        if (!is_string($data)) {
-            throw new Exception('lucene-cache only accepts string');
-        }
-
         // Lifetime of this cache entry in seconds. If NULL is specified, the default lifetime is used. "0" means unlimited lifetime.
         if ($lifetime === null) {
             $lifetime = $this->defaultLifetime;
@@ -109,53 +113,49 @@ class LuceneCacheBackend extends SimpleFileBackend implements TaggableBackendInt
      */
     protected function commit(): void
     {
-        if (!$this->buffer) {
+        if ($this->buffer === []) {
             return;
         }
 
-        $identifiers = array_keys($this->buffer);
-        $index = $this->getIndex();
-        $maxBufferedDocs = $index->getMaxBufferedDocs();
-        $index->setMaxBufferedDocs(count($identifiers) + 10);
+        $this->withAnalyzer(function (): void {
+            $identifiers = array_keys($this->buffer);
+            $index = $this->getIndex();
+            $maxBufferedDocs = $index->getMaxBufferedDocs();
+            $index->setMaxBufferedDocs(count($identifiers) + 10);
 
-        // delete the current entry, lucene cant replace
-        foreach ($identifiers as $identifier) {
-            $query = new Zend_Search_Lucene_Search_Query_Term(
-                new Zend_Search_Lucene_Index_Term($identifier, 'identifier')
-            );
-            $hits = $index->find($query);
-            foreach ($hits as $hit) {
-                $index->delete($hit->id);
-            }
-        }
-
-        foreach ($this->buffer as $entryIdentifier => $item) {
-            $data = $item['content'];
-            assert(is_string($data));
-            $expires = $item['lifetime'];
-            $tags = implode(' ', $item['tags']);
-
-            if ($this->compression) {
-                /** @noinspection PhpComposerExtensionStubsInspection */
-                $data = gzcompress($data, $this->compressionLevel);
-                if (false === $data) {
-                    throw new RuntimeException('Could not compress data');
+            // delete the current entry, lucene cant replace
+            foreach ($identifiers as $identifier) {
+                $query = new Zend_Search_Lucene_Search_Query_Term(
+                    new Zend_Search_Lucene_Index_Term($identifier, 'identifier')
+                );
+                $hits = $index->find($query);
+                foreach ($hits as $hit) {
+                    $index->delete($hit->id);
                 }
             }
 
-            $doc = new Document();
-            $doc->addField(Field::keyword('identifier', $entryIdentifier));
-            $doc->addField(Field::binary('content', $data));
-            $doc->addField(Field::unStored('tags', $tags));
-            $doc->addField(Field::keyword('lifetime', $expires));
-            $index->addDocument($doc);
-        }
+            foreach ($this->buffer as $entryIdentifier => $item) {
+                $data = $item['content'];
+                assert(is_string($data));
+                $expires = $item['lifetime'];
+                $tags = implode(' ', $item['tags']);
 
-        $index->commit();
+                $data = $this->compress($data);
 
-        $index->setMaxBufferedDocs($maxBufferedDocs);
+                $doc = new Document();
+                $doc->addField(Field::keyword('identifier', $entryIdentifier));
+                $doc->addField(Field::binary('content', $data));
+                $doc->addField(Field::unStored('tags', $tags));
+                $doc->addField(Field::keyword('lifetime', $expires));
+                $index->addDocument($doc);
+            }
 
-        $this->buffer = [];
+            $index->commit();
+
+            $index->setMaxBufferedDocs($maxBufferedDocs);
+
+            $this->buffer = [];
+        });
     }
 
     /**
@@ -181,6 +181,24 @@ class LuceneCacheBackend extends SimpleFileBackend implements TaggableBackendInt
         return $proxy;
     }
 
+    /**
+     * Execute a callback with the SingleSpaceTokenizer, restoring the previous analyzer afterwards.
+     *
+     * @template T
+     * @param callable(): T $callback
+     * @return T
+     */
+    private function withAnalyzer(callable $callback): mixed
+    {
+        $previousAnalyzer = Zend_Search_Lucene_Analysis_Analyzer::getDefault();
+        Zend_Search_Lucene_Analysis_Analyzer::setDefault(new SingleSpaceTokenizer());
+        try {
+            return $callback();
+        } finally {
+            Zend_Search_Lucene_Analysis_Analyzer::setDefault($previousAnalyzer);
+        }
+    }
+
     public function setMaxBufferedDocs(int $maxBufferedDocs): void
     {
         $this->maxBufferedDocs = abs($maxBufferedDocs);
@@ -191,7 +209,7 @@ class LuceneCacheBackend extends SimpleFileBackend implements TaggableBackendInt
      * @throws Zend_Search_Lucene_Exception
      * @throws Exception
      */
-    public function get($entryIdentifier): mixed
+    public function get(string $entryIdentifier): false|string
     {
         if (isset($this->buffer[$entryIdentifier]) && $this->buffer[$entryIdentifier]['lifetime'] > $this->execTime) {
             return $this->buffer[$entryIdentifier]['content'];
@@ -211,12 +229,7 @@ class LuceneCacheBackend extends SimpleFileBackend implements TaggableBackendInt
             return $data;
         }
 
-        if ($this->compression) {
-            /** @noinspection PhpComposerExtensionStubsInspection */
-            return gzuncompress($data);
-        }
-
-        return $data;
+        return $this->decompress($data);
     }
 
     /**
@@ -224,7 +237,7 @@ class LuceneCacheBackend extends SimpleFileBackend implements TaggableBackendInt
      * @throws Zend_Search_Exception
      * @throws Zend_Search_Lucene_Exception
      */
-    public function has($entryIdentifier): bool
+    public function has(string $entryIdentifier): bool
     {
         if (isset($this->buffer[$entryIdentifier]) && $this->buffer[$entryIdentifier]['lifetime'] > $this->execTime) {
             return true;
@@ -244,7 +257,7 @@ class LuceneCacheBackend extends SimpleFileBackend implements TaggableBackendInt
      * @throws Zend_Search_Exception
      * @throws Zend_Search_Lucene_Exception
      */
-    public function remove($entryIdentifier): bool
+    public function remove(string $entryIdentifier): bool
     {
         if (isset($this->buffer[$entryIdentifier])) {
             unset($this->buffer[$entryIdentifier]);
@@ -281,6 +294,8 @@ class LuceneCacheBackend extends SimpleFileBackend implements TaggableBackendInt
         foreach ($hits as $hit) {
             $index->delete($hit->id);
         }
+
+        $index->commit();
     }
 
     /**
@@ -289,21 +304,23 @@ class LuceneCacheBackend extends SimpleFileBackend implements TaggableBackendInt
      * @throws Zend_Search_Lucene_Exception
      * @throws Zend_Search_Lucene_Search_QueryParserException
      */
-    public function flushByTag($tag): void
+    public function flushByTag(string $tag): void
     {
         $this->commit();
-        $query = new Zend_Search_Lucene_Search_Query_Term(
-            new Zend_Search_Lucene_Index_Term($tag, 'tags')
-        );
+        $this->withAnalyzer(function () use ($tag): void {
+            $query = new Zend_Search_Lucene_Search_Query_Term(
+                new Zend_Search_Lucene_Index_Term($tag, 'tags')
+            );
 
-        $index = $this->getIndex();
-        $hits = $index->find($query);
+            $index = $this->getIndex();
+            $hits = $index->find($query);
 
-        foreach ($hits as $hit) {
-            $index->delete($hit);
-        }
+            foreach ($hits as $hit) {
+                $index->delete($hit);
+            }
 
-        $index->commit();
+            $index->commit();
+        });
     }
 
     /**
@@ -315,43 +332,46 @@ class LuceneCacheBackend extends SimpleFileBackend implements TaggableBackendInt
     public function flushByTags(array $tags): void
     {
         $this->commit();
-        $escapedTags = array_map(static fn($tag): string => '"' . addslashes($tag) . '"', $tags);
-        $queryStr = 'tags:(' . implode(' OR ', $escapedTags) . ')';
+        $this->withAnalyzer(function () use ($tags): void {
+            $escapedTags = array_map(static fn(string $tag): string => '"' . addslashes($tag) . '"', $tags);
+            $queryStr = 'tags:(' . implode(' OR ', $escapedTags) . ')';
 
-        $query = Zend_Search_Lucene_Search_QueryParser::parse($queryStr);
-        $index = $this->getIndex();
-        $hits = $index->find($query);
+            $query = Zend_Search_Lucene_Search_QueryParser::parse($queryStr);
+            $index = $this->getIndex();
+            $hits = $index->find($query);
 
-        foreach ($hits as $hit) {
-            $index->delete($hit);
-        }
+            foreach ($hits as $hit) {
+                $index->delete($hit);
+            }
 
-        $index->commit();
+            $index->commit();
+        });
     }
 
     /**
      * @inheritdoc
-     * @param string $tag
      * @return array<string>
      * @throws Zend_Search_Exception
      */
-    public function findIdentifiersByTag($tag): array
+    public function findIdentifiersByTag(string $tag): array
     {
         $this->commit();
-        $query = new Zend_Search_Lucene_Search_Query_Term(
-            new Zend_Search_Lucene_Index_Term($tag, 'tags')
-        );
+        return $this->withAnalyzer(function () use ($tag): array {
+            $query = new Zend_Search_Lucene_Search_Query_Term(
+                new Zend_Search_Lucene_Index_Term($tag, 'tags')
+            );
 
-        $index = $this->getIndex();
-        $hits = $index->find($query);
-        $hits = $this->filterByLifetime($index, $hits);
+            $index = $this->getIndex();
+            $hits = $index->find($query);
+            $hits = $this->filterByLifetime($index, $hits);
 
-        $identifiers = [];
-        foreach ($hits as $hit) {
-            $identifiers[] = $hit->getDocument()->getFieldValue('identifier');
-        }
+            $identifiers = [];
+            foreach ($hits as $hit) {
+                $identifiers[] = $hit->getDocument()->getFieldValue('identifier');
+            }
 
-        return $identifiers;
+            return $identifiers;
+        });
     }
 
     /**
@@ -381,17 +401,129 @@ class LuceneCacheBackend extends SimpleFileBackend implements TaggableBackendInt
 
     public function setCompression(bool $compression): void
     {
-        if ($compression && !function_exists('gzcompress')) {
-            throw new RuntimeException('Compression is not supported');
-        }
-
         $this->compression = $compression;
+
+        if ($compression && $this->compressionAlgorithm === '') {
+            // Auto-detect best available algorithm
+            $this->compressionAlgorithm = $this->detectBestCompressionAlgorithm();
+        }
     }
 
-    public function setOptimize(bool $optimize): void
+    /**
+     * Set the compression algorithm: 'zstd', 'gzdeflate', 'gzcompress'
+     */
+    public function setCompressionAlgorithm(string $algorithm): void
     {
-        trigger_deprecation('weakbit/lucene-cache', '2.0.3', 'Optimization flag is deprecated, remove it from your cache configuration');
-        $this->optimize = $optimize;
+        $supported = ['zstd', 'gzdeflate', 'gzcompress'];
+        if (!in_array($algorithm, $supported, true)) {
+            throw new RuntimeException(sprintf(
+                'Unsupported compression algorithm "%s". Supported: %s',
+                $algorithm,
+                implode(', ', $supported)
+            ), 3064094861);
+        }
+
+        if ($algorithm === 'zstd' && !function_exists('zstd_compress')) {
+            throw new RuntimeException('zstd compression requires ext-zstd', 1888340496);
+        }
+
+        $this->compressionAlgorithm = $algorithm;
+    }
+
+    /**
+     * Set minimum data size for compression (in bytes).
+     * Data smaller than this will not be compressed.
+     */
+    public function setCompressionMinSize(int $minSize): void
+    {
+        $this->compressionMinSize = max(0, $minSize);
+    }
+
+    /**
+     * Detect the best available compression algorithm.
+     */
+    private function detectBestCompressionAlgorithm(): string
+    {
+        // zstd is fastest with excellent ratio
+        if (function_exists('zstd_compress')) {
+            return 'zstd';
+        }
+
+        // gzdeflate is slightly faster than gzcompress (no header)
+        if (function_exists('gzdeflate')) {
+            return 'gzdeflate';
+        }
+
+        if (function_exists('gzcompress')) {
+            return 'gzcompress';
+        }
+
+        throw new RuntimeException('No compression algorithm available', 6634054114);
+    }
+
+    /**
+     * Compress data using the configured algorithm.
+     * Returns original data if compression is disabled or data is too small.
+     */
+    private function compress(string $data): string
+    {
+        if (!$this->compression) {
+            return $data;
+        }
+
+        // Skip compression for small data - overhead not worth it
+        if (strlen($data) < $this->compressionMinSize) {
+            return $data;
+        }
+
+        $compressed = match ($this->compressionAlgorithm) {
+            'zstd' => zstd_compress($data, $this->compressionLevel > 0 ? $this->compressionLevel : 3),
+            'gzdeflate' => gzdeflate($data, $this->compressionLevel),
+            'gzcompress' => gzcompress($data, $this->compressionLevel),
+            default => throw new RuntimeException('No compression algorithm configured', 6585967389),
+        };
+
+        if ($compressed === false) {
+            throw new RuntimeException('Compression failed', 3000545271);
+        }
+
+        // Prefix with algorithm identifier for decompression
+        return match ($this->compressionAlgorithm) {
+            'zstd' => "\x00Z" . $compressed,
+            'gzdeflate' => "\x00D" . $compressed,
+            'gzcompress' => "\x00C" . $compressed,
+            default => $compressed,
+        };
+    }
+
+    /**
+     * Decompress data, auto-detecting the algorithm from the prefix.
+     */
+    private function decompress(string $data): string|false
+    {
+        // Check for compression prefix
+        if (strlen($data) < 2 || $data[0] !== "\x00") {
+            // No prefix - check if it looks like legacy gzcompress data
+            // gzcompress starts with 0x78 (zlib header)
+            if ($data !== '' && ord($data[0]) === 0x78) {
+                $result = @gzuncompress($data);
+                return $result !== false ? $result : $data;
+            }
+
+            return $data;
+        }
+
+        $algorithm = $data[1];
+        $compressedData = substr($data, 2);
+
+        return match ($algorithm) {
+            'Z' => function_exists('zstd_uncompress')
+                ? zstd_uncompress($compressedData)
+                : throw new RuntimeException('zstd decompression requires ext-zstd', 7341513500),
+            'D' => gzinflate($compressedData),
+            'C' => gzuncompress($compressedData),
+            default => $data, // Unknown format, return as-is
+        };
     }
 
     /**

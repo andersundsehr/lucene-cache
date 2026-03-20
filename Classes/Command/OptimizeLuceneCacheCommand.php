@@ -6,6 +6,7 @@ declare(strict_types=1);
 
 namespace Weakbit\LuceneCache\Command;
 
+use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -18,17 +19,13 @@ use Weakbit\LuceneCache\Event\CacheOptimizationRequestedEvent;
 use Zend_Search_Exception;
 use Zend_Search_Lucene_Exception;
 
+#[AsCommand(
+    name: 'lucene:cache:optimize',
+    description: 'Optimize Lucene cache indices that are flagged for optimization',
+    help: 'This command checks all Lucene cache backends for optimization flags and optimizes them if needed.'
+)]
 class OptimizeLuceneCacheCommand extends Command
 {
-    /**
-     * Configure the command
-     */
-    protected function configure(): void
-    {
-        $this->setDescription('Optimize Lucene cache indices that are flagged for optimization');
-        $this->setHelp('This command checks all Lucene cache backends for optimization flags and optimizes them if needed.');
-    }
-
     /**
      * @throws NoSuchCacheException
      * @throws Zend_Search_Exception
@@ -37,7 +34,6 @@ class OptimizeLuceneCacheCommand extends Command
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $cacheManager = GeneralUtility::makeInstance(CacheManager::class);
-        assert($cacheManager instanceof CacheManager);
         $optimizedCaches = 0;
         $totalCaches = 0;
 
