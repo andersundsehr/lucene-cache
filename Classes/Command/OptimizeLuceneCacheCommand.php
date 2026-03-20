@@ -22,14 +22,10 @@ use Zend_Search_Lucene_Exception;
 #[AsCommand(
     name: 'lucene:cache:optimize',
     description: 'Optimize Lucene cache indices that are flagged for optimization',
+    help: 'This command checks all Lucene cache backends for optimization flags and optimizes them if needed.'
 )]
 class OptimizeLuceneCacheCommand extends Command
 {
-    protected function configure(): void
-    {
-        $this->setHelp('This command checks all Lucene cache backends for optimization flags and optimizes them if needed.');
-    }
-
     /**
      * @throws NoSuchCacheException
      * @throws Zend_Search_Exception
