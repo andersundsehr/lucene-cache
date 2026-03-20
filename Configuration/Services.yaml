@@ -3,26 +3,3 @@ services:
     autowire: true
     autoconfigure: true
     public: false
-
-  Weakbit\LuceneCache\Cache\Backend\LuceneCacheBackend:
-    tags:
-      - name: 'cache.backend'
-        identifier: 'lucene_cache_backend'
-
-  Weakbit\LuceneCache\Command\OptimizeLuceneCacheCommand:
-    tags:
-      - name: 'console.command'
-        command: 'lucene:cache:optimize'
-        description: 'Optimize Lucene cache indices'
-
-  Weakbit\LuceneCache\EventListener\EnableOptimizationListener:
-    tags:
-      - name: event.listener
-        identifier: 'lucene-cache-enable-optimization'
-        event: Weakbit\LuceneCache\Event\CacheOptimizationRequestedEvent
-
-  Weakbit\LuceneCache\EventListener\SystemLoadOptimizationListener:
-    tags:
-      - name: event.listener
-        identifier: 'lucene-cache-systemload-optimization'
-        event: Weakbit\LuceneCache\Event\CacheOptimizationRequestedEvent

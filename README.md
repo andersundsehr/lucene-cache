@@ -1,4 +1,8 @@
 # Use Lucene as Cache Backend for your TYPO3 projects
+
+[![CI](https://github.com/andersundsehr/lucene-cache/actions/workflows/tasks.yml/badge.svg)](https://github.com/andersundsehr/lucene-cache/actions/workflows/tasks.yml)
+[![codecov](https://codecov.io/gh/andersundsehr/lucene-cache/graph/badge.svg)](https://codecov.io/gh/andersundsehr/lucene-cache)
+
 Provides a cache backend for TYPO3 that stores all cache information in Lucene index.
 
 ## Key Features of lucene-cache for TYPO3 
@@ -25,8 +29,9 @@ $GLOBALS['TYPO3_CONF_VARS']['SYS']['caching']['cacheConfigurations']['pages'] = 
     'options' => [
         'defaultLifetime' => 604800,
         'maxBufferedDocs' => 1000,
-        'optimize' => false,
-        'compress' => true,
+        'compression' => true,
+        'compressionAlgorithm' => 'zstd', // optional: auto-detects if not set
+        'compressionMinSize' => 256,      // optional: skip compression for small data
     ],
     'groups' => [
       'pages',
@@ -38,38 +43,45 @@ The Option "indexName" must not contain other than the following chars: *a-zA-Z0
 
 ### Performance
 
-The issue to develop that cache was a usage of very many cache Tags.
+The issue to develop that cache was a usage of very many cache tags.
 
-maxBufferedDocs is set to 1000 here, that means that up to 1000 documents are buffered before the writeout, that is good for large imports if you have some spare ram. Meanwhite that caching information is not available to other PHP processes.
+maxBufferedDocs is set to 1000 here, that means that up to 1000 documents are buffered before to write, that is good for large imports if you have some spare ram. Meanwhile, that caching information is not available to other PHP processes.
 
 Keep in mind that some operations (flushes and garbage collection) will always commit the buffer first to have a full index to search in.
 
+### compression
 
-#### optimize
+Enable compression to reduce disk space usage. The extension supports multiple compression algorithms and will auto-detect the best available one.
 
-The optimize setting sounds like a always good idea, but it is a very ressource intensive job so it is disabled by default.
+```php
+'options' => [
+    'compression' => true,
+    'compressionAlgorithm' => 'zstd',  // 'zstd', 'gzdeflate', or 'gzcompress'
+    'compressionLevel' => 3,           // -1 to 9 (default: -1 = auto)
+    'compressionMinSize' => 256,       // minimum bytes to compress (default: 256)
+],
+```
 
-### compress
+**Available algorithms (in order of preference):**
 
-Filters the data through gzcompress (must be compiled into your PHP installation) to reduce data
+| Algorithm    | Speed  | Ratio     | Requirement |
+|--------------|--------|-----------|-------------|
+| `zstd`       | ⚡ Fast | Excellent | ext-zstd    |
+| `gzdeflate`  | Medium | Good      | ext-zlib    |
+| `gzcompress` | Medium | Good      | ext-zlib    |
 
-### Keep in mind 
-
-This extenion relies on using the SingleSpaceTokenizer with the lucene package, so if you already use lucene in your project, your tokenizer is overwritten which could lead into problems.
-*This is a todo we work on*
-
-Use the proper cache technology for your needs, lucene may fit well for a page cache with lots of entries and tags, while others with more write/read operations go better with database/redis or even apcu if you do not have concurrency problems.
-
-# Additional Resources
+- **Auto-detection**: If `compressionAlgorithm` is not set, the best available algorithm is used automatically.
+- **Minimum size**: Data smaller than `compressionMinSize` bytes is not compressed (overhead not worth it).
+- **Backward compatible**: Existing caches using legacy `gzcompress` will still decompress correctly.
 
 For more detailed information, refer to the following resources:
 
 [Lucene-cache GitHub Repository](https://github.com/andersundsehr/lucene-cache)
 
-[TYPO3 Documentation on Caching Framework](https://docs.typo3.org/m/typo3/reference-coreapi/12.4/en-us/ApiOverview/CachingFramework/Index.html****)
+[TYPO3 Documentation on Caching Framework](https://docs.typo3.org/m/typo3/reference-coreapi/main/en-us/ApiOverview/CachingFramework/Index.html#caching-framework)
 
 These resources provide comprehensive documentation and examples to help you get started with the lucene-cache backend for TYPO3.
 
 # Credits
 
-This extension is inspired by Benni Mack's [https://github.com/bmack/local-caches](bmack/local-caches)
+This extension is inspired by Benni Mack's [bmack/local-caches](https://github.com/bmack/local-caches)

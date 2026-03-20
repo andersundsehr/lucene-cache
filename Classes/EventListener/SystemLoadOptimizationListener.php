@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace Weakbit\LuceneCache\EventListener;
 
+use TYPO3\CMS\Core\Attribute\AsEventListener;
 use Weakbit\LuceneCache\Event\CacheOptimizationRequestedEvent;
 
 /**
  * Listens for CacheOptimizationRequestedEvent and disables optimization if system load is too high
  */
+#[AsEventListener('lucene-cache-systemload-optimization')]
 class SystemLoadOptimizationListener extends AbstractExtensionConfigListener
 {
     public function __invoke(CacheOptimizationRequestedEvent $event): void
@@ -40,7 +42,7 @@ class SystemLoadOptimizationListener extends AbstractExtensionConfigListener
         }
 
         $load = sys_getloadavg();
-        if ($load === false || !is_array($load) || count($load) < 3) {
+        if ($load === false) {
             return null;
         }
 
