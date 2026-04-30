@@ -1,4 +1,4 @@
-ACT_IMAGE ?= efrecon/act:v0.2.80
+ACT_IMAGE ?= efrecon/act:v0.2.87
 WORKDIR   ?= /work
 UID_GID    := $(shell id -u):$(shell id -g)
 DOCKER_GID := $(shell stat -c '%g' /var/run/docker.sock)
@@ -30,9 +30,11 @@ endef
 all: ci clean
 
 ci:   ## Standard-Event "push"
-	$(DOCKER_RUN) $(PLATFORM) $(SECRETS) $(ACT_ARGS)
+	$(DOCKER_RUN) $(PLATFORM) $(SECRETS) $(ACT_ARGS) 2>&1 | tee /tmp/act-output.log; \
+	echo ""; \
+	echo "=== 🏁 Summary ==="; \
+	grep "🏁" /tmp/act-output.log || true
 
 
 clean:
 	docker rm -f $$(docker ps -aq --filter "name=act-") 2>/dev/null || true
-
