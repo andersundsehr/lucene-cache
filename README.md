@@ -1,7 +1,7 @@
 # Use Lucene as Cache Backend for your TYPO3 projects
 
 [![CI](https://github.com/andersundsehr/lucene-cache/actions/workflows/tasks.yml/badge.svg)](https://github.com/andersundsehr/lucene-cache/actions/workflows/tasks.yml)
-[![codecov](https://codecov.io/gh/andersundsehr/lucene-cache/graph/badge.svg)](https://codecov.io/gh/andersundsehr/lucene-cache)
+[![codecov](https://codecov.io/github/andersundsehr/lucene-cache/branch/main/graph/badge.svg)](https://app.codecov.io/github/andersundsehr/lucene-cache)
 
 Provides a cache backend for TYPO3 that stores all cache information in Lucene index.
 
@@ -38,8 +38,6 @@ $GLOBALS['TYPO3_CONF_VARS']['SYS']['caching']['cacheConfigurations']['pages'] = 
     ]
 ];
 ```
-
-The Option "indexName" must not contain other than the following chars: *a-zA-Z0-9\-_*
 
 ### Performance
 
