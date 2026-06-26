@@ -7,7 +7,7 @@
   "type": "typo3-cms-extension",
   "require": {
     "php": "~8.2.0 || ~8.3.0 || ~8.4.0 || ~8.5.0",
-    "typo3/cms-core": "~14.1.0",
+    "typo3/cms-core": "~14.3.3",
     "zf1s/zend-search-lucene": "^1.15.5"
   },
   "require-dev": {
@@ -15,7 +15,7 @@
     "pluswerk/grumphp-config": "^10.2.6 || ^11.0.0",
     "saschaegerer/phpstan-typo3": "*",
     "ssch/typo3-rector": "*",
-    "typo3/minimal": "^14.0",
+    "typo3/minimal": "^14.0.0",
     "typo3/testing-framework": "^8.2 || ^9.4"
   },
   "suggest": {

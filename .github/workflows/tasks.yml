@@ -15,19 +15,12 @@ jobs:
       matrix:
         php: [ '82', '83', '84', '85' ]
         typo3: [ '14' ]
-    outputs:
-      result: ${{ steps.set-result.outputs.result }}
-      php: ${{ matrix.php }}
-      typo3: ${{ matrix.typo3 }}
     container:
       image: ghcr.io/typo3/core-testing-php${{ matrix.php }}:latest
     steps:
       - name: Install dependencies (Alpine)
         run: apk add --no-cache nodejs npm gnupg
       - uses: actions/checkout@v4
-      - name: Get composer project name
-        id: composer-name
-        run: echo "name=$(php -r "echo str_replace('/', '-', json_decode(file_get_contents('composer.json'))->name);")" >> $GITHUB_OUTPUT
       - uses: actions/cache@v4
         with:
           path: |
