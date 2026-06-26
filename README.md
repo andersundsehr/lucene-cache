@@ -1,8 +1,7 @@
 # Use Lucene as Cache Backend for your TYPO3 projects
 
 [![CI](https://github.com/andersundsehr/lucene-cache/actions/workflows/tasks.yml/badge.svg)](https://github.com/andersundsehr/lucene-cache/actions/workflows/tasks.yml)
-[![codecov](https://codecov.io/gh/andersundsehr/lucene-cache/graph/badge.svg)](https://codecov.io/gh/andersundsehr/lucene-cache)
-
+[![codecov](https://codecov.io/gh/andersundsehr/lucene-cache/graph/badge.svg?token=B5MXLYATME)](https://codecov.io/gh/andersundsehr/lucene-cache)
 Provides a cache backend for TYPO3 that stores all cache information in Lucene index.
 
 ## Key Features of lucene-cache for TYPO3 

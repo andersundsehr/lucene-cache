@@ -492,7 +492,6 @@ class LuceneCacheBackend extends SimpleFileBackend implements TaggableBackendInt
             'zstd' => "\x00Z" . $compressed,
             'gzdeflate' => "\x00D" . $compressed,
             'gzcompress' => "\x00C" . $compressed,
-            default => $compressed,
         };
     }
 
