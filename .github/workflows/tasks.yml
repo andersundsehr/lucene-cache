@@ -10,7 +10,7 @@ jobs:
     name: "php: ${{ matrix.php }} TYPO3: ${{ matrix.typo3 }}"
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: true
+      fail-fast: false
       max-parallel: 4
       matrix:
         php: [ '82', '83', '84', '85' ]
@@ -31,8 +31,21 @@ jobs:
           restore-keys: |
             ${{ matrix.typo3 }}-${{ matrix.php }}-composer-
       - run: git config --global --add safe.directory $GITHUB_WORKSPACE
-      - run: composer switchto${{ matrix.typo3 }} --ignore-platform-req=php+
-      - run: ./vendor/bin/grumphp run --ansi --no-interaction
+      # CI-only alias until TYPO3 accepts the security-fixed svg-sanitize ^1.0.
+      - run: composer require "enshrined/svg-sanitize:1.0.0 as 0.22.99" --dev --no-update --sort-packages --no-interaction
+      - run: composer switchto${{ matrix.typo3 }}
+      - run: bash tests/typo3-svg-sanitizer.sh
+      - name: Run all static checks
+        shell: bash
+        run: |
+          set -o pipefail
+          ./vendor/bin/grumphp run --no-ansi --no-interaction 2>&1 | tee /tmp/php85-grumphp.log
+      - name: Report failed static checks
+        if: failure()
+        run: |
+          if [ -f /tmp/php85-grumphp.log ]; then
+            php -r '$s=file_get_contents("/tmp/php85-grumphp.log"); echo "::error::".str_replace(["%", "\r", "\n"], ["%25", "%0D", "%0A"], substr($s, -5000))."\n";'
+          fi
       - run: composer test
       - name: Generate coverage report
         if: matrix.php == '83' && matrix.typo3 == '14'

@@ -9,7 +9,6 @@ use Rector\Privatization\Rector\ClassMethod\PrivatizeFinalClassMethodRector;
 use PLUS\GrumPHPConfig\RectorSettings;
 use Rector\Config\RectorConfig;
 use Rector\Caching\ValueObject\Storage\FileCacheStorage;
-use Rector\Set\ValueObject\SetList;
 use Ssch\TYPO3Rector\TYPO311\v0\DateTimeAspectInsteadOfGlobalsExecTimeRector;
 
 return static function (RectorConfig $rectorConfig): void {
@@ -40,7 +39,6 @@ return static function (RectorConfig $rectorConfig): void {
             DateTimeAspectInsteadOfGlobalsExecTimeRector::class,
             RemoveExtraParametersRector::class,
             RemoveUnusedPrivateMethodRector::class,
-            SetList::STRICT_BOOLEANS,
 
             /**
              * rector should not touch these files

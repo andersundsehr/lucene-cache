@@ -80,9 +80,7 @@ class LuceneCacheBackend extends SimpleFileBackend implements TaggableBackendInt
     public function set(string $entryIdentifier, string $data, array $tags = [], ?int $lifetime = null): void
     {
         // Lifetime of this cache entry in seconds. If NULL is specified, the default lifetime is used. "0" means unlimited lifetime.
-        if ($lifetime === null) {
-            $lifetime = $this->defaultLifetime;
-        }
+        $lifetime ??= $this->defaultLifetime;
 
         if ($lifetime === 0) {
             $lifetime = 9999999999;
